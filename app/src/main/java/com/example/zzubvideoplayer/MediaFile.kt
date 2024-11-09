@@ -7,5 +7,5 @@ data class MediaFile(
     val duration: Long,
     val size: Long,
     val dateModified: Long,
-    val lastPlayed: Long
+    val lastAccessed: Long
 )

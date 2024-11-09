@@ -5,7 +5,6 @@ import android.content.Context
 import android.net.Uri
 import android.provider.MediaStore
 import android.util.Log
-import androidx.annotation.RequiresApi
 
 fun fetchMediaFiles(context: Context, sortMethod: String = MediaStore.Video.Media.DATE_ADDED): List<MediaFile> {
     val mediaFiles = mutableListOf<MediaFile>()
@@ -38,7 +37,7 @@ fun fetchMediaFiles(context: Context, sortMethod: String = MediaStore.Video.Medi
                 val size = cursor.getLong(sizeColumn)
                 val dateModified = cursor.getLong(dateModifiedColumn) * 1000 // Convert to milliseconds
                 val contentUri = Uri.withAppendedPath(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id.toString())
-                mediaFiles.add(MediaFile(id, contentUri, name, duration, size, dateModified, lastPlayed = 0L))
+                mediaFiles.add(MediaFile(id, contentUri, name, duration, size, dateModified, System.currentTimeMillis()))
             } catch (e: Exception) {
                 Log.e("fetchMediaFiles", "Error parsing media file entry: ${e.message}")
             }
@@ -48,7 +47,6 @@ fun fetchMediaFiles(context: Context, sortMethod: String = MediaStore.Video.Medi
     return mediaFiles
 }
 
-@RequiresApi(35)
 fun saveRecentlyWatched(context: Context, mediaFile: MediaFile) {
     val sharedPreferences = context.getSharedPreferences("recently_watched", Context.MODE_PRIVATE)
     val editor = sharedPreferences.edit()
@@ -59,7 +57,7 @@ fun saveRecentlyWatched(context: Context, mediaFile: MediaFile) {
     if (currentList.size > 10) currentList.removeLast() // Limit to last 10 items
 
     val mediaStringSet = currentList.map {
-        "${it.id}|${Uri.encode(it.uri.toString())}|${it.displayName}|${it.duration}|${it.size}|${it.dateModified}|${it.lastPlayed}"
+        "${it.id}|${Uri.encode(it.uri.toString())}|${it.displayName}|${it.duration}|${it.size}|${it.dateModified}|${it.lastAccessed}"
     }.toSet()
 
     editor.putStringSet("media_files", mediaStringSet)
@@ -80,7 +78,7 @@ fun loadRecentlyWatched(context: Context): List<MediaFile> {
                 duration = parts[3].toLong(),
                 size = parts[4].toLong(),
                 dateModified = parts[5].toLong(),
-                lastPlayed = parts[6].toLong()
+                lastAccessed = parts[6].toLong()
             )
         } catch (e: Exception) {
             Log.e("loadRecentlyWatched", "Error parsing recently watched entry: ${e.message}")

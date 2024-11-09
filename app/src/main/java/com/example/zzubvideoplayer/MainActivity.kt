@@ -1,27 +1,28 @@
 package com.example.zzubvideoplayer
 
+import android.content.Context
+import android.net.Uri
 import android.os.Bundle
+import android.provider.MediaStore
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.List
-import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -32,19 +33,26 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.media3.common.MediaItem
-import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.PlayerView
+import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.zzubvideoplayer.screens.LibraryScreen
-import com.example.zzubvideoplayer.screens.VideoFile
-import com.example.zzubvideoplayer.screens.VideoItem
 import com.example.zzubvideoplayer.ui.theme.ZZUBVIDEOPLAYERTheme
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+// Data class for media files
+data class MediaFile(
+    val id: Long,
+    val uri: Uri,
+    val displayName: String,
+    val duration: Long,
+    val size: Long,
+    val dateModified: Long
+)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -73,7 +81,7 @@ fun MainApp() {
 fun BottomNavigationBar(navController: NavHostController) {
     var selectedItem by remember { mutableStateOf("home") }
 
-    BottomAppBar(
+    NavigationBar(
         containerColor = MaterialTheme.colorScheme.inversePrimary
     ) {
         val items = listOf(
@@ -107,6 +115,10 @@ fun BottomNavigationBar(navController: NavHostController) {
                     selectedItem = item.route
                     navController.navigate(item.route) {
                         launchSingleTop = true
+                        popUpTo(navController.graph.startDestinationId) {
+                            saveState = true
+                        }
+                        restoreState = true
                     }
                 }
             )
@@ -118,26 +130,22 @@ data class NavigationItem(val route: String, val icon: ImageVector, val label: S
 
 @Composable
 fun NavigationGraph(navController: NavHostController, modifier: Modifier = Modifier) {
-    NavHost(navController = navController, startDestination = "home") {
+    NavHost(navController = navController, startDestination = "home", modifier = modifier) {
         composable("home") { HomeScreen() }
         composable("library") { LibraryScreen() }
     }
 }
 
-
-
-
 @Composable
 fun HomeScreen() {
     val context = LocalContext.current
-    val recentlyWatched = remember { mutableStateListOf<VideoFile>() }
-    val exoPlayer = remember { 
-        ExoPlayer.Builder(context).build().apply {
-            repeatMode = Player.REPEAT_MODE_OFF
-            playWhenReady = true
-        }
+    val recentlyAccessedFiles = remember { mutableStateListOf<MediaFile>() }
+
+    LaunchedEffect(Unit) {
+        val files = fetchRecentlyAccessedMediaFiles(context)
+        recentlyAccessedFiles.clear()
+        recentlyAccessedFiles.addAll(files)
     }
-    var playingUri by remember { mutableStateOf<String?>(null) }
 
     Column(
         modifier = Modifier
@@ -145,46 +153,63 @@ fun HomeScreen() {
             .padding(16.dp)
     ) {
         Text(
-            "Recently Watched",
-            style = MaterialTheme.typography.titleLarge,
-            modifier = Modifier.padding(vertical = 16.dp)
+            "Recently Accessed Videos",
+            fontSize = 24.sp,
+            style = MaterialTheme.typography.headlineMedium,
+            modifier = Modifier.padding(bottom = 16.dp)
         )
 
-        if (playingUri != null) {
-            AndroidView(
-                factory = { context ->
-                    PlayerView(context).apply {
-
-                    }
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(240.dp)
-            )
-        }
-
-        LazyColumn {
-            items(recentlyWatched) { video ->
-                VideoItem(
-                    video = video,
-                    isPlaying = video.filePath == playingUri,
-                    onVideoClick = {
-                        if (playingUri != video.filePath) {
-                            playingUri = video.filePath
-                            exoPlayer.apply {
-                                setMediaItem(MediaItem.fromUri(video.filePath))
-                                prepare()
-                            }
-                        }
-                    }
-                )
+        if (recentlyAccessedFiles.isNotEmpty()) {
+            LazyColumn {
+                items(recentlyAccessedFiles) { mediaFile ->
+                    val formattedDate = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(mediaFile.dateModified))
+                    Text(
+                        text = "${mediaFile.displayName} - Last modified: $formattedDate",
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.padding(vertical = 8.dp)
+                    )
+                }
             }
+        } else {
+            Text("No videos found.")
+        }
+    }
+}
+
+fun fetchRecentlyAccessedMediaFiles(context: Context): List<MediaFile> {
+    val mediaFiles = mutableListOf<MediaFile>()
+    val projection = arrayOf(
+        MediaStore.Video.Media._ID,
+        MediaStore.Video.Media.DISPLAY_NAME,
+        MediaStore.Video.Media.DURATION,
+        MediaStore.Video.Media.SIZE,
+        MediaStore.Video.Media.DATE_MODIFIED
+    )
+
+    context.contentResolver.query(
+        MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+        projection,
+        null,
+        null,
+        MediaStore.Video.Media.DATE_MODIFIED + " DESC"
+    )?.use { cursor ->
+        val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media._ID)
+        val displayNameColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DISPLAY_NAME)
+        val durationColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DURATION)
+        val sizeColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.SIZE)
+        val dateModifiedColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DATE_MODIFIED)
+
+        while (cursor.moveToNext() && mediaFiles.size < 10) {
+            val id = cursor.getLong(idColumn)
+            val uri = Uri.withAppendedPath(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id.toString())
+            val displayName = cursor.getString(displayNameColumn)
+            val duration = cursor.getLong(durationColumn)
+            val size = cursor.getLong(sizeColumn)
+            val dateModified = cursor.getLong(dateModifiedColumn) * 1000 // Convert to milliseconds
+
+            mediaFiles.add(MediaFile(id, uri, displayName, duration, size, dateModified))
         }
     }
 
-    DisposableEffect(Unit) {
-        onDispose {
-            exoPlayer.release()
-        }
-    }
+    return mediaFiles
 }
