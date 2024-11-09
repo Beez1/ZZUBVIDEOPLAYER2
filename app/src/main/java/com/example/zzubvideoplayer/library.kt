@@ -5,49 +5,40 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.provider.MediaStore
 import android.widget.Toast
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.PermissionChecker
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 
 @Composable
 fun LibraryScreen() {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val videoFiles = remember { mutableStateListOf<VideoFile>() }
     var playingUri by remember { mutableStateOf<String?>(null) }
-    val exoPlayer = remember { ExoPlayer.Builder(context).build() }
+    var recentlyWatched = remember { mutableStateListOf<VideoFile>() }
+    val exoPlayer = remember { 
+        ExoPlayer.Builder(context).build().apply {
+            repeatMode = Player.REPEAT_MODE_OFF
+            playWhenReady = true
+        }
+    }
 
     LaunchedEffect(Unit) {
         if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_EXTERNAL_STORAGE) == PermissionChecker.PERMISSION_GRANTED) {
@@ -62,88 +53,144 @@ fun LibraryScreen() {
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Text("Video Library", style = MaterialTheme.typography.titleLarge)
-        Spacer(modifier = Modifier.height(8.dp))
-
-        if (playingUri != null) {
-            // Display the player when a video is selected
-            AndroidView(
-                factory = {
-                    PlayerView(context).apply {
-                        player = exoPlayer
-                        useController = true
-                    }
-                },
-                modifier = Modifier.fillMaxSize().padding(bottom = 16.dp)
-            )
-        }
-
-        if (videoFiles.isNotEmpty()) {
-            LazyColumn {
-                items(videoFiles) { video ->
-                    VideoItem(
-                        video = video,
-                        onVideoClick = {
-                            playingUri = video.filePath
-                            val mediaItem = MediaItem.fromUri(playingUri!!)
-                            exoPlayer.setMediaItem(mediaItem)
-                            exoPlayer.prepare()
-                            exoPlayer.playWhenReady = true
-                        },
-                        context = context
-                    )
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_PAUSE -> exoPlayer.pause()
+                Lifecycle.Event.ON_STOP -> {
+                    exoPlayer.stop()
+                    playingUri = null
                 }
+                else -> {}
             }
-        } else {
-            Text("No videos found or permission not granted.")
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            exoPlayer.release()
         }
     }
 
-    DisposableEffect(Unit) {
-        onDispose {
-            if (exoPlayer.isPlaying) {
-                exoPlayer.stop()
-                exoPlayer.release()
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (playingUri != null) {
+            AndroidView(
+                factory = { context ->
+                    PlayerView(context).apply {
+                        player = exoPlayer
+                        useController = true
+                        setShowNextButton(false)
+                        setShowPreviousButton(false)
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(240.dp)
+                    .align(Alignment.TopCenter)
+            )
+        }
+
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = if (playingUri != null) 240.dp else 0.dp)
+                .padding(horizontal = 16.dp)
+        ) {
+            if (videoFiles.isEmpty()) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 32.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "No videos found",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
+                    }
+                }
+            } else {
+                items(videoFiles) { video ->
+                    VideoItem(
+                        video = video,
+                        isPlaying = video.filePath == playingUri,
+                        onVideoClick = {
+                            if (playingUri != video.filePath) {
+                                playingUri = video.filePath
+                                if (!recentlyWatched.contains(video)) {
+                                    recentlyWatched.add(0, video)
+                                    if (recentlyWatched.size > 10) {
+                                        recentlyWatched.removeAt(recentlyWatched.lastIndex)
+                                    }
+                                }
+                                exoPlayer.apply {
+                                    setMediaItem(MediaItem.fromUri(video.filePath))
+                                    prepare()
+                                }
+                            }
+                        }
+                    )
+                }
+            }
+
+            item {
+                if (recentlyWatched.isNotEmpty()) {
+                    Text(
+                        "Recently Watched",
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.padding(vertical = 16.dp)
+                    )
+                    recentlyWatched.forEach { video ->
+                        VideoItem(
+                            video = video,
+                            isPlaying = video.filePath == playingUri,
+                            onVideoClick = {
+                                if (playingUri != video.filePath) {
+                                    playingUri = video.filePath
+                                    exoPlayer.apply {
+                                        setMediaItem(MediaItem.fromUri(video.filePath))
+                                        prepare()
+                                    }
+                                }
+                            }
+                        )
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-fun VideoItem(video: VideoFile, onVideoClick: () -> Unit, context: Context) {
-    Card(
+fun VideoItem(
+    video: VideoFile,
+    isPlaying: Boolean,
+    onVideoClick: () -> Unit
+) {
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp)
-            .clickable { onVideoClick() },
-        elevation = CardDefaults.cardElevation(4.dp)
+            .padding(vertical = 8.dp),
+        onClick = onVideoClick,
+        color = if (isPlaying) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+        tonalElevation = 2.dp
     ) {
         Row(
             modifier = Modifier
                 .padding(16.dp)
                 .fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            val thumbnail = remember { getVideoThumbnail(context, video.filePath) }
-            thumbnail?.let {
-                Image(
-                    bitmap = it.asImageBitmap(),
-                    contentDescription = "Thumbnail for ${video.title}",
-                    modifier = Modifier.size(80.dp)
-                )
-            }
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(text = video.title, style = MaterialTheme.typography.bodyLarge)
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(text = video.filePath, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
-            }
+            Text(
+                text = video.title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (isPlaying) MaterialTheme.colorScheme.onPrimaryContainer 
+                        else MaterialTheme.colorScheme.onSurface
+            )
         }
     }
 }
-
-// Data class and helper functions remain unchanged
 
 data class VideoFile(val title: String, val filePath: String)
 
@@ -175,33 +222,4 @@ fun getAllVideoFiles(context: Context): List<VideoFile> {
         }
     }
     return videoList
-}
-
-fun getVideoThumbnail(context: Context, filePath: String): Bitmap? {
-    val contentResolver: ContentResolver = context.contentResolver
-    val projection = arrayOf(MediaStore.Video.Media._ID)
-    val selection = "${MediaStore.Video.Media.DATA} = ?"
-    val selectionArgs = arrayOf(filePath)
-
-    val cursor = contentResolver.query(
-        MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
-        projection,
-        selection,
-        selectionArgs,
-        null
-    )
-
-    var thumbnail: Bitmap? = null
-    cursor?.use {
-        if (it.moveToFirst()) {
-            val videoId = it.getLong(it.getColumnIndexOrThrow(MediaStore.Video.Media._ID))
-            thumbnail = MediaStore.Video.Thumbnails.getThumbnail(
-                contentResolver,
-                videoId,
-                MediaStore.Video.Thumbnails.MINI_KIND,
-                null
-            )
-        }
-    }
-    return thumbnail
 }
