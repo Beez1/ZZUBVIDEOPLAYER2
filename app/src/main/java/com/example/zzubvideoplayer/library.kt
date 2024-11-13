@@ -25,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
@@ -41,6 +42,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 
 @androidx.annotation.OptIn(UnstableApi::class)
+
 @OptIn(UnstableApi::class)
 @Composable
 fun LibraryScreen() {
@@ -110,6 +112,18 @@ fun LibraryScreen() {
                 .padding(top = if (playingUri != null) 240.dp else 0.dp)
                 .padding(horizontal = 16.dp)
         ) {
+            item {
+                // Header for the video library
+                Text(
+                    text = "Video Library",
+                    style = MaterialTheme.typography.headlineMedium,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 16.dp),
+                    color = Color.White
+                )
+            }
+
             if (videoFiles.isEmpty()) {
                 item {
                     Box(
@@ -145,7 +159,6 @@ fun LibraryScreen() {
         }
     }
 }
-
 @Composable
 fun VideoItem(
     video: VideoFile,
