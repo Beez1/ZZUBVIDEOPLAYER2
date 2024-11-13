@@ -1,6 +1,6 @@
 plugins {
-    alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
 }
 
 android {
@@ -50,7 +50,6 @@ android {
 }
 
 dependencies {
-
     implementation(libs.androidx.core.ktx)
     implementation(libs.coil.compose)
     implementation(libs.androidx.media3.exoplayer)
@@ -74,5 +73,4 @@ dependencies {
     val nav_version = "2.8.3"
 
     implementation(libs.androidx.navigation.compose)
-
 }

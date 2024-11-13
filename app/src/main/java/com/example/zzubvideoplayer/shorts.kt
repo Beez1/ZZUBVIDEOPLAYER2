@@ -19,33 +19,38 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 
 @Composable
-fun ShortsScreen(videos: List<MediaFile>) {
-    // Filter videos to include only those less than a minute
+fun ShortsScreen(videos: List<MediaFile>, exoPlayer: ExoPlayer) {
     val shorts = videos.filter { it.duration < 60_000 }
     var currentVideo by remember { mutableStateOf(shorts.randomOrNull()) }
 
     // Function to load the next random video
     val loadNextVideo = {
-        currentVideo = shorts.randomOrNull()
+        val remainingVideos = shorts.filter { it != currentVideo }
+        currentVideo = if (remainingVideos.isNotEmpty()) {
+            remainingVideos.random()
+        } else {
+            shorts.randomOrNull()
+        }
     }
 
     currentVideo?.let { video ->
         FullScreenVideoPlayer(
             videoUri = video.uri,
-            onVideoEnded = loadNextVideo
+            onVideoEnded = loadNextVideo,
+            exoPlayer = exoPlayer
         )
     }
 }
 
 @Composable
-fun FullScreenVideoPlayerr(videoUri: Uri, onVideoEnded: () -> Unit) {
+fun FullScreenVideoPlayer(videoUri: Uri, onVideoEnded: () -> Unit, exoPlayer: ExoPlayer) {
     val context = LocalContext.current
-    val exoPlayer = remember { ExoPlayer.Builder(context).build() }
 
     DisposableEffect(videoUri) {
         exoPlayer.setMediaItem(MediaItem.fromUri(videoUri))
         exoPlayer.prepare()
         exoPlayer.playWhenReady = true
+        exoPlayer.repeatMode = Player.REPEAT_MODE_OFF
 
         exoPlayer.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
@@ -56,7 +61,7 @@ fun FullScreenVideoPlayerr(videoUri: Uri, onVideoEnded: () -> Unit) {
         })
 
         onDispose {
-            exoPlayer.release()
+            exoPlayer.stop()
         }
     }
 
@@ -70,6 +75,7 @@ fun FullScreenVideoPlayerr(videoUri: Uri, onVideoEnded: () -> Unit) {
         modifier = Modifier.fillMaxSize()
     )
 }
+
 
 fun fetchShortVideos(context: Context): List<MediaFile> {
     val mediaFiles = mutableListOf<MediaFile>()
