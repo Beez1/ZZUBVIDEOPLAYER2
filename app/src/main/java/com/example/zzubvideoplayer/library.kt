@@ -4,7 +4,6 @@ import android.content.ContentResolver
 import android.content.Context
 import android.provider.MediaStore
 import android.widget.Toast
-import androidx.annotation.OptIn
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -41,6 +40,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 
+@androidx.annotation.OptIn(UnstableApi::class)
 @OptIn(UnstableApi::class)
 @Composable
 fun LibraryScreen() {
@@ -48,7 +48,6 @@ fun LibraryScreen() {
     val lifecycleOwner = LocalLifecycleOwner.current
     val videoFiles = remember { mutableStateListOf<VideoFile>() }
     var playingUri by remember { mutableStateOf<String?>(null) }
-    var recentlyWatched = remember { mutableStateListOf<VideoFile>() }
     val exoPlayer = remember {
         ExoPlayer.Builder(context).build().apply {
             repeatMode = Player.REPEAT_MODE_OFF
@@ -134,12 +133,6 @@ fun LibraryScreen() {
                         onVideoClick = {
                             if (playingUri != video.filePath) {
                                 playingUri = video.filePath
-                                if (!recentlyWatched.contains(video)) {
-                                    recentlyWatched.add(0, video)
-                                    if (recentlyWatched.size > 10) {
-                                        recentlyWatched.removeAt(recentlyWatched.lastIndex)
-                                    }
-                                }
                                 exoPlayer.apply {
                                     setMediaItem(MediaItem.fromUri(video.filePath))
                                     prepare()
@@ -147,31 +140,6 @@ fun LibraryScreen() {
                             }
                         }
                     )
-                }
-            }
-
-            item {
-                if (recentlyWatched.isNotEmpty()) {
-                    Text(
-                        "Recently Watched",
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.padding(vertical = 16.dp)
-                    )
-                    recentlyWatched.forEach { video ->
-                        VideoItem(
-                            video = video,
-                            isPlaying = video.filePath == playingUri,
-                            onVideoClick = {
-                                if (playingUri != video.filePath) {
-                                    playingUri = video.filePath
-                                    exoPlayer.apply {
-                                        setMediaItem(MediaItem.fromUri(video.filePath))
-                                        prepare()
-                                    }
-                                }
-                            }
-                        )
-                    }
                 }
             }
         }
