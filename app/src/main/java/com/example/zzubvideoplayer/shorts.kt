@@ -38,7 +38,7 @@ fun ShortsScreen(videos: List<MediaFile>) {
 }
 
 @Composable
-fun FullScreenVideoPlayer(videoUri: Uri, onVideoEnded: () -> Unit) {
+fun FullScreenVideoPlayerr(videoUri: Uri, onVideoEnded: () -> Unit) {
     val context = LocalContext.current
     val exoPlayer = remember { ExoPlayer.Builder(context).build() }
 

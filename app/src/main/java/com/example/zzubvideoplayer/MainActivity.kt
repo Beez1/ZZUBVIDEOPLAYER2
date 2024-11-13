@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.MediaStore
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalAnimationApi
@@ -36,7 +37,6 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.PlayArrow
-
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -47,6 +47,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -62,6 +63,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -220,11 +226,39 @@ fun AnimatedScreen(content: @Composable () -> Unit) {
         content()
     }
 }
+@Composable
+fun FullScreenVideoPlayer(videoUri: Uri, onVideoEnded: () -> Unit) {
+    val context = LocalContext.current
+    val exoPlayer = remember { ExoPlayer.Builder(context).build() }
 
+    DisposableEffect(videoUri) {
+        exoPlayer.setMediaItem(MediaItem.fromUri(videoUri))
+        exoPlayer.prepare()
+        exoPlayer.playWhenReady = true
+
+        exoPlayer.addListener(object : Player.Listener {
+            override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_ENDED) {
+                    onVideoEnded()
+                }
+            }
+        })
+
+        onDispose {
+            exoPlayer.release()
+        }
+    }
+
+    AndroidView(
+        factory = { PlayerView(context).apply { player = exoPlayer; useController = false } },
+        modifier = Modifier.fillMaxSize()
+    )
+}
 @Composable
 fun HomeScreen() {
     val context = LocalContext.current
     val recentlyAccessedFiles = remember { mutableStateListOf<MediaFile>() }
+    var selectedVideoUri by remember { mutableStateOf<Uri?>(null) }
 
     LaunchedEffect(Unit) {
         val files = fetchRecentlyAccessedMediaFiles(context)
@@ -232,40 +266,52 @@ fun HomeScreen() {
         recentlyAccessedFiles.addAll(files)
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
-    ) {
-        Text(
-            "Recently Added Videos",
-            fontSize = 24.sp,
-            fontWeight = FontWeight.Bold,
-            color = White,
-            modifier = Modifier.padding(bottom = 16.dp)
-        )
+    // BackHandler to exit full-screen mode when back is pressed
+    BackHandler(enabled = selectedVideoUri != null) {
+        selectedVideoUri = null
+    }
 
-        if (recentlyAccessedFiles.isNotEmpty()) {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(recentlyAccessedFiles) { mediaFile ->
-                    AnimatedCard(mediaFile)
+    Box(modifier = Modifier.fillMaxSize()) {
+        selectedVideoUri?.let { uri ->
+            FullScreenVideoPlayer(videoUri = uri, onVideoEnded = { selectedVideoUri = null })
+        }
+
+        if (selectedVideoUri == null) {
+            Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                Text(
+                    "Recently Added Videos",
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = White,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+
+                if (recentlyAccessedFiles.isNotEmpty()) {
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(recentlyAccessedFiles) { mediaFile ->
+                            AnimatedCard(
+                                mediaFile = mediaFile,
+                                onClick = {
+                                    selectedVideoUri = Uri.parse(mediaFile.uri.toString())
+                                }
+                            )
+                        }
+                    }
+                } else {
+                    Box(
+                        modifier = Modifier.fillMaxSize().padding(16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(color = SoftBlueAccent)
+                    }
                 }
-            }
-        } else {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(16.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator(color = SoftBlueAccent)
             }
         }
     }
 }
 
 @Composable
-fun AnimatedCard(mediaFile: MediaFile) {
+fun AnimatedCard(mediaFile: MediaFile, onClick: () -> Unit) {
     val scale by animateFloatAsState(
         targetValue = 1f,
         animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing)
@@ -280,7 +326,7 @@ fun AnimatedCard(mediaFile: MediaFile) {
                 scaleY = scale
                 alpha = scale
             }
-            .clickable { /* Handle video click */ },
+            .clickable { onClick() }, // Trigger the onClick function when the card is clicked
         colors = CardDefaults.cardColors(containerColor = DarkGrayBackground),
         shape = RoundedCornerShape(16.dp),
         elevation = CardDefaults.cardElevation(8.dp)
@@ -328,6 +374,7 @@ fun AnimatedCard(mediaFile: MediaFile) {
         }
     }
 }
+
 
 @Composable
 fun VideoThumbnail(mediaFile: MediaFile) {
