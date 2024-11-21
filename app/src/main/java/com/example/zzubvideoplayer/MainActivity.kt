@@ -246,7 +246,7 @@ fun AnimatedScreen(content: @Composable () -> Unit) {
     }
 }
 @Composable
-fun FullScreenVideoPlayer(videoUri: Uri, onVideoEnded: () -> Unit) {
+fun FullScreenVideoPlayerr(videoUri: Uri, onVideoEnded: () -> Unit) {
     val context = LocalContext.current
     val exoPlayer = remember { ExoPlayer.Builder(context).build() }
 
@@ -292,7 +292,7 @@ fun HomeScreen() {
 
     Box(modifier = Modifier.fillMaxSize()) {
         selectedVideoUri?.let { uri ->
-            FullScreenVideoPlayer(videoUri = uri, onVideoEnded = { selectedVideoUri = null })
+            FullScreenVideoPlayerr(videoUri = uri, onVideoEnded = { selectedVideoUri = null })
         }
 
         if (selectedVideoUri == null) {
