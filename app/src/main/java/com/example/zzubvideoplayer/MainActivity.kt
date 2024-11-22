@@ -222,13 +222,14 @@ data class NavigationItem(val route: String, val icon: ImageVector, val label: S
 @OptIn(ExperimentalAnimationApi::class)
 @Composable
 fun NavigationGraph(navController: NavHostController, modifier: Modifier = Modifier, videos: List<MediaFile>, exoPlayer: ExoPlayer) {
+    val context = LocalContext.current
     NavHost(
         navController = navController,
         startDestination = "home",
         modifier = modifier
     ) {
         composable("home") { AnimatedScreen { HomeScreen() } }
-        composable("shorts") { ShortsScreen(videos = videos, exoPlayer = exoPlayer) }
+        composable("shorts") { ShortsScreen(videos = videos, exoPlayer = exoPlayer, context = context) }
         composable("library") { AnimatedScreen { LibraryScreen() } }
     }
 }

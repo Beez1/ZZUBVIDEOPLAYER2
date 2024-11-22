@@ -49,6 +49,7 @@ android {
     }
 }
 
+
 dependencies {
     implementation("androidx.compose.foundation:foundation-layout:1.7.5")
     implementation(libs.androidx.core.ktx)
@@ -64,6 +65,7 @@ dependencies {
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
     implementation(libs.androidx.datastore.core.android)
+    implementation(libs.support.annotations)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

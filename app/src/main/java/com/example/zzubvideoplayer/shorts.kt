@@ -1,8 +1,13 @@
 package com.example.zzubvideoplayer
 
 import android.content.Context
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.net.Uri
 import android.provider.MediaStore
+import android.widget.Toast
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -19,9 +24,14 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
+import kotlin.math.sqrt
 
 @Composable
-fun ShortsScreen(videos: List<MediaFile>, exoPlayer: ExoPlayer) {
+fun ShortsScreen(
+    videos: List<MediaFile>,
+    exoPlayer: ExoPlayer,
+    context: Context
+) {
     // Filter for videos less than 1 minute in duration
     val shorts = videos.filter { it.duration < 60_000 }
     var currentIndex by remember { mutableStateOf(0) }
@@ -30,18 +40,37 @@ fun ShortsScreen(videos: List<MediaFile>, exoPlayer: ExoPlayer) {
     val currentVideo = shorts.getOrNull(currentIndex)
 
     // Define the function to load the next video
-    val loadNextVideo = {
+    val loadNextVideo: () -> Unit = {
         if (currentIndex < shorts.size - 1) {
             currentIndex++
+        } else {
+            // Optionally, loop back to the first video
+            currentIndex = 0
         }
     }
 
     // Define the function to load the previous video
-    val loadPreviousVideo = {
+    val loadPreviousVideo: () -> Unit = {
         if (currentIndex > 0) {
             currentIndex--
+        } else {
+            // Optionally, jump to the last video
+            currentIndex = shorts.size - 1
         }
     }
+
+    // Integrate shake detection logic
+    // Note: ShakeDetector is not defined, so this part is commented out
+    // Uncomment and implement ShakeDetector if it's available
+
+    ShakeDetector(
+        context = context,
+        onShakeDetected = {
+            loadNextVideo()
+            Toast.makeText(context, "Shake detected! Loading next video...", Toast.LENGTH_SHORT).show()
+        }
+    )
+
 
     // Only display if there is a current video
     currentVideo?.let { video ->
@@ -54,6 +83,55 @@ fun ShortsScreen(videos: List<MediaFile>, exoPlayer: ExoPlayer) {
         )
     }
 }
+
+@Composable
+fun ShakeDetector(
+    context: Context,
+    onShakeDetected: () -> Unit
+) {
+    val sensorManager = remember { context.getSystemService(Context.SENSOR_SERVICE) as SensorManager }
+    val accelerometer = remember { sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) }
+    val shakeThreshold = 12f
+    val shakeInterval = 500 // Minimum time between shakes in milliseconds
+    var lastShakeTimestamp by remember { mutableStateOf(0L) }
+
+    DisposableEffect(Unit) {
+        val listener = object : SensorEventListener {
+            override fun onSensorChanged(event: SensorEvent?) {
+                if (event?.sensor?.type == Sensor.TYPE_ACCELEROMETER) {
+                    val x = event.values[0]
+                    val y = event.values[1]
+                    val z = event.values[2]
+
+                    // Calculate the acceleration magnitude
+                    val acceleration = sqrt(x * x + y * y + z * z) - SensorManager.GRAVITY_EARTH
+
+                    // Get current time
+                    val currentTime = System.currentTimeMillis()
+
+                    // Check if the acceleration exceeds the threshold and if enough time has passed since the last shake
+                    if (acceleration > shakeThreshold && currentTime - lastShakeTimestamp > shakeInterval) {
+                        lastShakeTimestamp = currentTime
+                        onShakeDetected()
+                    }
+                }
+            }
+
+            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
+                // Not used
+            }
+        }
+
+        // Register sensor listener
+        sensorManager.registerListener(listener, accelerometer, SensorManager.SENSOR_DELAY_NORMAL)
+
+        onDispose {
+            // Unregister sensor listener to avoid memory leaks
+            sensorManager.unregisterListener(listener)
+        }
+    }
+}
+
 
 @Composable
 fun FullScreenVideoPlayer(
