@@ -1,4 +1,3 @@
-// File: LibraryScreen.kt
 package com.example.zzubvideoplayer.screens
 
 import android.content.ContentResolver
@@ -7,13 +6,14 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
-import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,12 +23,21 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -38,39 +47,37 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.content.ContextCompat
-import androidx.core.content.PermissionChecker
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-// Data class representing each video file
+// Data class for video file information
 data class VideoFile(
     val title: String,
     val filePath: String,
+    val size: Long,
+    val duration: Long,
     val thumbnail: Bitmap?
 )
 
-
-
-
-@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen() {
     val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
     val videoFiles = remember { mutableStateListOf<VideoFile>() }
+    var filteredVideos by remember { mutableStateOf<List<VideoFile>>(emptyList()) }
     var playingUri by remember { mutableStateOf<String?>(null) }
     var isFullscreen by remember { mutableStateOf(false) }
+    var sortCriteria by remember { mutableStateOf("Recently Added") }
+    var filterQuery by remember { mutableStateOf("") }
+    var isSearchVisible by remember { mutableStateOf(false) }
 
     // Initialize ExoPlayer
     val exoPlayer = remember {
@@ -80,128 +87,141 @@ fun LibraryScreen() {
         }
     }
 
-    // Permissions handling
-    val storagePermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        android.Manifest.permission.READ_MEDIA_VIDEO
-    } else {
-        android.Manifest.permission.READ_EXTERNAL_STORAGE
-    }
-    val hasPermission = ContextCompat.checkSelfPermission(context, storagePermission) == PermissionChecker.PERMISSION_GRANTED
-
-    // Request permissions and load videos when permission is granted
-    LaunchedEffect(hasPermission) {
-        if (hasPermission) {
-            videoFiles.addAll(getAllVideoFiles(context))
-        } else {
-            // Optionally, you can show rationale or request permission here
-        }
+    // Load video files
+    LaunchedEffect(Unit) {
+        val videos = getAllVideoFiles(context)
+        videoFiles.addAll(videos)
+        filteredVideos = videos
     }
 
-    // Handle ExoPlayer lifecycle
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_PAUSE -> exoPlayer.pause()
-                Lifecycle.Event.ON_STOP -> {
-                    exoPlayer.stop()
-                    playingUri = null
-                    isFullscreen = false
-                }
-                else -> {}
+    // Apply Filter and Sort
+    fun applyFilterAndSort() {
+        filteredVideos = videoFiles.filter { video ->
+            video.title.contains(filterQuery, ignoreCase = true)
+        }.sortedWith(
+            when (sortCriteria) {
+                "Recently Added" -> compareByDescending { it.filePath }
+                "File Size" -> compareByDescending { it.size }
+                "Length" -> compareByDescending { it.duration }
+                else -> compareBy { it.title }
             }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-            exoPlayer.release()
-        }
+        )
     }
 
     // Main UI
     Box(modifier = Modifier.fillMaxSize()) {
         if (isFullscreen && playingUri != null) {
-            // Fullscreen Player
+            // Fullscreen video player
             AndroidView(
-                factory = { ctx ->
-                    PlayerView(ctx).apply {
-                        player = exoPlayer
-                        useController = true
-                        setShowNextButton(false)
-                        setShowPreviousButton(false)
-                        layoutParams = android.view.ViewGroup.LayoutParams(
-                            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                            android.view.ViewGroup.LayoutParams.MATCH_PARENT
-                        )
+                factory = { PlayerView(it).apply { player = exoPlayer; useController = true } },
+                modifier = Modifier.fillMaxSize()
+            ) {
+                exoPlayer.addListener(object : Player.Listener {
+                    override fun onPlaybackStateChanged(state: Int) {
+                        if (state == Player.STATE_ENDED) {
+                            playingUri = null
+                            isFullscreen = false
+                        }
                     }
-                },
+                })
+            }
+        } else {
+            Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .clickable {
-                        // Optional: Exit fullscreen on tap outside controls
-                        isFullscreen = false
-                        exoPlayer.pause()
-                    }
-            )
-        } else {
-            // Video Grid
-            Column(modifier = Modifier.fillMaxSize()) {
-                Text(
-                    text = "Video Library",
-                    style = MaterialTheme.typography.headlineMedium,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                if (hasPermission) {
-                    VideoGrid(
-                        videos = videoFiles,
-                        onVideoSelected = { video ->
-                            playingUri = video.filePath
-                            isFullscreen = true
-                            exoPlayer.apply {
-                                setMediaItem(MediaItem.fromUri(Uri.parse(video.filePath)))
-                                prepare()
-                                play()
-                            }
-                        }
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            ) {
+                // Title Bar with Filter and Search Buttons
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "Library Videos",
+                        style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                        modifier = Modifier.weight(1f)
                     )
-                } else {
-                    // Permission Not Granted UI
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Text(
-                            text = "Storage permission is required to display videos.",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurface
+                    IconButton(onClick = { isSearchVisible = !isSearchVisible }) {
+                        Icon(
+                            imageVector = if (isSearchVisible) Icons.Default.Close else Icons.Default.Search,
+                            contentDescription = if (isSearchVisible) "Hide Search" else "Show Search"
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Button(onClick = {
-                            // Request permission here
-                            Toast.makeText(context, "Please grant storage permission", Toast.LENGTH_SHORT).show()
-                        }) {
-                            Text(text = "Grant Permission")
-                        }
+                    }
+                    IconButton(onClick = {
+                        // Show filter options (or open filter dialog)
+                    }) {
+
                     }
                 }
+
+                // Search Bar (Toggleable)
+                AnimatedVisibility(visible = isSearchVisible) {
+                    TextField(
+                        value = filterQuery,
+                        onValueChange = {
+                            filterQuery = it
+                            applyFilterAndSort()
+                        },
+                        label = { Text("Search videos") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = "Search Icon"
+                            )
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        colors = TextFieldDefaults.textFieldColors(
+                            containerColor = MaterialTheme.colorScheme.surface
+                        )
+                    )
+                }
+
+                // Spacer for additional padding
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Video Grid
+                VideoGrid(
+                    videos = filteredVideos,
+                    onVideoSelected = { video ->
+                        playingUri = video.filePath
+                        isFullscreen = true
+                        exoPlayer.apply {
+                            setMediaItem(androidx.media3.common.MediaItem.fromUri(Uri.parse(video.filePath)))
+                            prepare()
+                            play()
+                        }
+                    }
+                )
             }
         }
+    }
+}
 
-        // Optional: Display message if no videos are found
-        if (videoFiles.isEmpty() && hasPermission) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "No videos found",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+
+@Composable
+fun FilterButton(
+    sortCriteria: String,
+    onSortChanged: (String) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        Button(onClick = { expanded = true }) {
+            Text(text = sortCriteria)
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            listOf("Recently Added", "File Size", "Length").forEach { criteria ->
+                DropdownMenuItem(
+                    text = { Text(text = criteria) },
+                    onClick = {
+                        onSortChanged(criteria)
+                        expanded = false
+                    }
                 )
             }
         }
@@ -214,15 +234,12 @@ fun VideoGrid(
     onVideoSelected: (VideoFile) -> Unit
 ) {
     LazyVerticalGrid(
-        columns = GridCells.Fixed(5), // 5 columns
+        columns = GridCells.Fixed(3),
         contentPadding = PaddingValues(4.dp),
         modifier = Modifier.fillMaxSize()
     ) {
         items(videos) { video ->
-            VideoThumbnailItem(
-                video = video,
-                onVideoClick = { onVideoSelected(video) }
-            )
+            VideoThumbnailItem(video = video, onVideoClick = { onVideoSelected(video) })
         }
     }
 }
@@ -234,44 +251,20 @@ fun VideoThumbnailItem(
 ) {
     Surface(
         modifier = Modifier
-            .padding(2.dp) // Minimal padding for compact grid
-            .aspectRatio(1f) // Ensures the item is square
-            .clickable(onClick = onVideoClick),
-        tonalElevation = 1.dp,
-        color = MaterialTheme.colorScheme.surface
+            .padding(4.dp)
+            .aspectRatio(1f)
+            .clickable { onVideoClick() }
     ) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             if (video.thumbnail != null) {
-                // Display the thumbnail
                 Image(
                     bitmap = video.thumbnail.asImageBitmap(),
                     contentDescription = "Video Thumbnail",
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
                 )
             } else {
-                // Optional: Use Coil to load image from filePath if thumbnails aren't available
-                // Uncomment below lines if you have Coil integrated and prefer to load images dynamically
-                /*
-                val painter = rememberAsyncImagePainter(
-                    model = video.filePath,
-                    builder = {
-                        crossfade(true)
-                        placeholder(R.drawable.placeholder)
-                        error(R.drawable.error)
-                        size(200) // Adjust size as needed
-                    }
-                )
-                Image(
-                    painter = painter,
-                    contentDescription = "Video Thumbnail",
-                    modifier = Modifier.fillMaxSize()
-                )
-                */
-
-                // Fallback UI for videos without thumbnails
+                // Placeholder text for videos without thumbnails
                 Text(
                     text = "No Thumbnail",
                     style = MaterialTheme.typography.bodySmall,
@@ -289,7 +282,9 @@ suspend fun getAllVideoFiles(context: Context): List<VideoFile> {
         val projection = arrayOf(
             MediaStore.Video.Media._ID,
             MediaStore.Video.Media.DISPLAY_NAME,
-            MediaStore.Video.Media.DATA
+            MediaStore.Video.Media.DATA,
+            MediaStore.Video.Media.SIZE,
+            MediaStore.Video.Media.DURATION
         )
 
         val cursor = contentResolver.query(
@@ -303,20 +298,22 @@ suspend fun getAllVideoFiles(context: Context): List<VideoFile> {
         cursor?.use {
             val titleIndex = it.getColumnIndexOrThrow(MediaStore.Video.Media.DISPLAY_NAME)
             val filePathIndex = it.getColumnIndexOrThrow(MediaStore.Video.Media.DATA)
+            val sizeIndex = it.getColumnIndexOrThrow(MediaStore.Video.Media.SIZE)
+            val durationIndex = it.getColumnIndexOrThrow(MediaStore.Video.Media.DURATION)
             val idIndex = it.getColumnIndexOrThrow(MediaStore.Video.Media._ID)
 
             while (it.moveToNext()) {
                 val title = it.getString(titleIndex)
                 val filePath = it.getString(filePathIndex)
+                val size = it.getLong(sizeIndex)
+                val duration = it.getLong(durationIndex)
                 val id = it.getLong(idIndex)
 
-                // Fetch thumbnail using ContentResolver.loadThumbnail (API 29+)
                 val thumbnail: Bitmap? = try {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                         val uri = Uri.withAppendedPath(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id.toString())
                         contentResolver.loadThumbnail(uri, android.util.Size(200, 200), null)
                     } else {
-                        // For API levels below 29, use MediaStore.Video.Thumbnails.getThumbnail
                         MediaStore.Video.Thumbnails.getThumbnail(
                             contentResolver,
                             id,
@@ -329,7 +326,7 @@ suspend fun getAllVideoFiles(context: Context): List<VideoFile> {
                     null
                 }
 
-                videoList.add(VideoFile(title, filePath, thumbnail))
+                videoList.add(VideoFile(title, filePath, size, duration, thumbnail))
             }
         }
         videoList
