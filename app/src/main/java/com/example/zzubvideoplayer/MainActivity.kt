@@ -1,7 +1,7 @@
 package com.example.zzubvideoplayer
 
 import android.content.Context
-import android.net.Uri
+import android.graphics.Bitmap
 import android.os.Bundle
 import android.provider.MediaStore
 import androidx.activity.ComponentActivity
@@ -16,6 +16,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -50,7 +51,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -58,8 +58,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -75,6 +77,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.zzubvideoplayer.screens.LibraryScreen
 import com.example.zzubvideoplayer.ui.theme.ZZUBVIDEOPLAYERTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -86,11 +90,12 @@ private val White = Color.White
 
 data class MediaFile(
     val id: Long,
-    val uri: Uri,
+    val uri: android.net.Uri,
     val displayName: String,
     val duration: Long,
     val size: Long,
-    val dateModified: Long
+    val dateModified: Long,
+    val thumbnail: Bitmap? // Added thumbnail property
 )
 
 class MainActivity : ComponentActivity() {
@@ -121,7 +126,13 @@ class MainActivity : ComponentActivity() {
 fun MainApp(exoPlayer: ExoPlayer) {
     val context = LocalContext.current
     val navController = rememberNavController()
-    val videos = remember { fetchShortVideos(context) }
+
+    var videos by remember { mutableStateOf<List<MediaFile>>(emptyList()) }
+
+    // Load videos asynchronously
+    LaunchedEffect(Unit) {
+        videos = fetchRecentlyAccessedMediaFiles(context)
+    }
 
     Scaffold(
         bottomBar = { BottomNavigationBar(navController) },
@@ -221,19 +232,26 @@ data class NavigationItem(val route: String, val icon: ImageVector, val label: S
 
 @OptIn(ExperimentalAnimationApi::class)
 @Composable
-fun NavigationGraph(navController: NavHostController, modifier: Modifier = Modifier, videos: List<MediaFile>, exoPlayer: ExoPlayer) {
-    val context = LocalContext.current
+fun NavigationGraph(
+    navController: NavHostController,
+    modifier: Modifier = Modifier,
+    videos: List<MediaFile>,
+    exoPlayer: ExoPlayer
+) {
     NavHost(
         navController = navController,
         startDestination = "home",
         modifier = modifier
     ) {
-        composable("home") { AnimatedScreen { HomeScreen() } }
-        composable("shorts") { ShortsScreen(videos = videos, exoPlayer = exoPlayer, context = context) }
+        composable("home") {
+            AnimatedScreen {
+                HomeScreen(videos = videos, exoPlayer = exoPlayer)
+            }
+        }
+        composable("shorts") { /* Implement your ShortsScreen here */ }
         composable("library") { AnimatedScreen { LibraryScreen() } }
     }
 }
-
 
 @OptIn(ExperimentalAnimationApi::class)
 @Composable
@@ -246,45 +264,10 @@ fun AnimatedScreen(content: @Composable () -> Unit) {
         content()
     }
 }
+
 @Composable
-fun FullScreenVideoPlayerr(videoUri: Uri, onVideoEnded: () -> Unit) {
-    val context = LocalContext.current
-    val exoPlayer = remember { ExoPlayer.Builder(context).build() }
-
-    DisposableEffect(videoUri) {
-        exoPlayer.setMediaItem(MediaItem.fromUri(videoUri))
-        exoPlayer.prepare()
-        exoPlayer.playWhenReady = true
-
-        exoPlayer.addListener(object : Player.Listener {
-            override fun onPlaybackStateChanged(state: Int) {
-                if (state == Player.STATE_ENDED) {
-                    onVideoEnded()
-                }
-            }
-        })
-
-        onDispose {
-            exoPlayer.release()
-        }
-    }
-
-    AndroidView(
-        factory = { PlayerView(context).apply { player = exoPlayer; useController = false } },
-        modifier = Modifier.fillMaxSize()
-    )
-}
-@Composable
-fun HomeScreen() {
-    val context = LocalContext.current
-    val recentlyAccessedFiles = remember { mutableStateListOf<MediaFile>() }
-    var selectedVideoUri by remember { mutableStateOf<Uri?>(null) }
-
-    LaunchedEffect(Unit) {
-        val files = fetchRecentlyAccessedMediaFiles(context)
-        recentlyAccessedFiles.clear()
-        recentlyAccessedFiles.addAll(files)
-    }
+fun HomeScreen(videos: List<MediaFile>, exoPlayer: ExoPlayer) {
+    var selectedVideoUri by remember { mutableStateOf<android.net.Uri?>(null) }
 
     // BackHandler to exit full-screen mode when back is pressed
     BackHandler(enabled = selectedVideoUri != null) {
@@ -293,11 +276,19 @@ fun HomeScreen() {
 
     Box(modifier = Modifier.fillMaxSize()) {
         selectedVideoUri?.let { uri ->
-            FullScreenVideoPlayerr(videoUri = uri, onVideoEnded = { selectedVideoUri = null })
+            FullScreenVideoPlayer(
+                videoUri = uri,
+                onVideoEnded = { selectedVideoUri = null },
+                exoPlayer = exoPlayer
+            )
         }
 
         if (selectedVideoUri == null) {
-            Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp)
+            ) {
                 Text(
                     "Recently Added Videos",
                     fontSize = 24.sp,
@@ -306,20 +297,22 @@ fun HomeScreen() {
                     modifier = Modifier.padding(bottom = 16.dp)
                 )
 
-                if (recentlyAccessedFiles.isNotEmpty()) {
+                if (videos.isNotEmpty()) {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(recentlyAccessedFiles) { mediaFile ->
+                        items(videos) { mediaFile ->
                             AnimatedCard(
                                 mediaFile = mediaFile,
                                 onClick = {
-                                    selectedVideoUri = Uri.parse(mediaFile.uri.toString())
+                                    selectedVideoUri = mediaFile.uri
                                 }
                             )
                         }
                     }
                 } else {
                     Box(
-                        modifier = Modifier.fillMaxSize().padding(16.dp),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(16.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         CircularProgressIndicator(color = SoftBlueAccent)
@@ -328,6 +321,48 @@ fun HomeScreen() {
             }
         }
     }
+}
+
+@Composable
+fun FullScreenVideoPlayer(
+    videoUri: android.net.Uri,
+    onVideoEnded: () -> Unit,
+    exoPlayer: ExoPlayer
+) {
+    val context = LocalContext.current
+
+    // Manage ExoPlayer lifecycle and playback
+    DisposableEffect(videoUri) {
+        exoPlayer.setMediaItem(MediaItem.fromUri(videoUri))
+        exoPlayer.prepare()
+        exoPlayer.playWhenReady = true
+        exoPlayer.repeatMode = Player.REPEAT_MODE_OFF
+
+        val listener = object : Player.Listener {
+            override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_ENDED) {
+                    onVideoEnded()
+                }
+            }
+        }
+        exoPlayer.addListener(listener)
+
+        onDispose {
+            exoPlayer.removeListener(listener)
+            exoPlayer.stop()
+        }
+    }
+
+    // Implement AndroidView for ExoPlayer integration in Compose
+    AndroidView(
+        factory = {
+            PlayerView(context).apply {
+                player = exoPlayer
+                useController = false // Hide default video controls
+            }
+        },
+        modifier = Modifier.fillMaxSize()
+    )
 }
 
 @Composable
@@ -340,7 +375,6 @@ fun AnimatedCard(mediaFile: MediaFile, onClick: () -> Unit) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(8.dp)
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
@@ -395,7 +429,6 @@ fun AnimatedCard(mediaFile: MediaFile, onClick: () -> Unit) {
     }
 }
 
-
 @Composable
 fun VideoThumbnail(mediaFile: MediaFile) {
     Box(
@@ -405,16 +438,25 @@ fun VideoThumbnail(mediaFile: MediaFile) {
             .background(DarkGrayBackground),
         contentAlignment = Alignment.Center
     ) {
-        Icon(
-            imageVector = Icons.Default.PlayArrow,
-            contentDescription = "Play Video",
-            tint = White,
-            modifier = Modifier.size(40.dp)
-        )
+        if (mediaFile.thumbnail != null) {
+            Image(
+                bitmap = mediaFile.thumbnail.asImageBitmap(),
+                contentDescription = "Video Thumbnail",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            Icon(
+                imageVector = Icons.Default.PlayArrow,
+                contentDescription = "Play Video",
+                tint = White,
+                modifier = Modifier.size(40.dp)
+            )
+        }
     }
 }
 
-fun fetchRecentlyAccessedMediaFiles(context: Context): List<MediaFile> {
+suspend fun fetchRecentlyAccessedMediaFiles(context: Context): List<MediaFile> = withContext(Dispatchers.IO) {
     val mediaFiles = mutableListOf<MediaFile>()
     val projection = arrayOf(
         MediaStore.Video.Media._ID,
@@ -440,16 +482,33 @@ fun fetchRecentlyAccessedMediaFiles(context: Context): List<MediaFile> {
         var count = 0
         while (cursor.moveToNext() && count < 10) { // Limit to 10 items
             val id = cursor.getLong(idColumn)
-            val uri = Uri.withAppendedPath(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id.toString())
+            val uri = android.net.Uri.withAppendedPath(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id.toString())
             val displayName = cursor.getString(displayNameColumn)
             val duration = cursor.getLong(durationColumn)
             val size = cursor.getLong(sizeColumn)
             val dateModified = cursor.getLong(dateModifiedColumn) * 1000
 
-            mediaFiles.add(MediaFile(id, uri, displayName, duration, size, dateModified))
+            // Load thumbnail
+            val thumbnail: Bitmap? = try {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    val thumbnailSize = android.util.Size(200, 200)
+                    context.contentResolver.loadThumbnail(uri, thumbnailSize, null)
+                } else {
+                    MediaStore.Video.Thumbnails.getThumbnail(
+                        context.contentResolver,
+                        id,
+                        MediaStore.Video.Thumbnails.MINI_KIND,
+                        null
+                    )
+                }
+            } catch (e: Exception) {
+                null
+            }
+
+            mediaFiles.add(MediaFile(id, uri, displayName, duration, size, dateModified, thumbnail))
             count++
         }
     }
 
-    return mediaFiles
+    mediaFiles
 }

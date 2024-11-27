@@ -220,8 +220,9 @@ fun fetchShortVideos(context: Context): List<MediaFile> {
             val duration = cursor.getLong(durationColumn)
             val size = cursor.getLong(sizeColumn)
             val dateModified = cursor.getLong(dateModifiedColumn) * 1000
+            val thumbnail = null // Add a null thumbnail for now
 
-            mediaFiles.add(MediaFile(id, uri, displayName, duration, size, dateModified))
+            mediaFiles.add(MediaFile(id, uri, displayName, duration, size, dateModified, thumbnail))
         }
     }
 
