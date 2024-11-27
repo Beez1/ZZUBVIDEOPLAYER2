@@ -219,6 +219,7 @@ fun BottomNavigationBar(navController: NavHostController) {
 
 data class NavigationItem(val route: String, val icon: ImageVector, val label: String)
 
+
 @OptIn(ExperimentalAnimationApi::class)
 @Composable
 fun NavigationGraph(
@@ -234,7 +235,7 @@ fun NavigationGraph(
     ) {
         composable("home") {
             AnimatedScreen {
-                HomeScreen(videos = videos, exoPlayer = exoPlayer)
+                HomeScreen(videos = videos, exoPlayer = exoPlayer, navController = navController)
             }
         }
         composable("shorts") {
@@ -245,8 +246,12 @@ fun NavigationGraph(
         composable("library") {
             AnimatedScreen { LibraryScreen() }
         }
+        composable("storage") {
+            AnimatedScreen { StorageScreen(navController = navController) }
+        }
     }
 }
+
 
 @OptIn(ExperimentalAnimationApi::class)
 @Composable
@@ -261,7 +266,7 @@ fun AnimatedScreen(content: @Composable () -> Unit) {
 }
 
 @Composable
-fun HomeScreen(videos: List<MediaFile>, exoPlayer: ExoPlayer) {
+fun HomeScreen(videos: List<MediaFile>, exoPlayer: ExoPlayer, navController: NavHostController) {
     var selectedVideoUri by remember { mutableStateOf<android.net.Uri?>(null) }
 
     // BackHandler to exit full-screen mode when back is pressed
@@ -284,13 +289,32 @@ fun HomeScreen(videos: List<MediaFile>, exoPlayer: ExoPlayer) {
                     .fillMaxSize()
                     .padding(16.dp)
             ) {
-                Text(
-                    "Recently Added Videos",
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = White,
-                    modifier = Modifier.padding(bottom = 16.dp)
-                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        "Recently Added Videos",
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = White
+                    )
+
+                    // Navigate to Storage Screen
+                    Icon(
+                        imageVector = Icons.Default.List, // You can replace this with another icon if preferred
+                        contentDescription = "Storage",
+                        tint = White,
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clickable {
+                                navController.navigate("storage") // Navigate to Storage screen
+                            }
+                    )
+                }
 
                 if (videos.isNotEmpty()) {
                     androidx.compose.foundation.lazy.LazyColumn(
@@ -319,6 +343,7 @@ fun HomeScreen(videos: List<MediaFile>, exoPlayer: ExoPlayer) {
         }
     }
 }
+
 
 @Composable
 fun FullScreenVideoPlayer(

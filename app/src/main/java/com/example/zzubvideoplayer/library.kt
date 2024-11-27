@@ -35,6 +35,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -65,6 +66,7 @@ data class VideoFile(
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
+
 @Composable
 fun LibraryScreen() {
     val context = LocalContext.current
@@ -81,6 +83,13 @@ fun LibraryScreen() {
         ExoPlayer.Builder(context).build().apply {
             repeatMode = Player.REPEAT_MODE_OFF
             playWhenReady = true
+        }
+    }
+
+    // Release ExoPlayer when the screen is no longer visible
+    DisposableEffect(Unit) {
+        onDispose {
+            exoPlayer.release()
         }
     }
 
@@ -139,6 +148,7 @@ fun LibraryScreen() {
         }
     }
 }
+
 
 @Composable
 fun FullscreenPlayer(
