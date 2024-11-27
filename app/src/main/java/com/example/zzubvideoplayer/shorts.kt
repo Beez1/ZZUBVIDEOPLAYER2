@@ -10,12 +10,7 @@ import android.provider.MediaStore
 import android.widget.Toast
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -25,44 +20,40 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import kotlin.math.sqrt
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 fun ShortsScreen(
-    videos: List<MediaFile>,
-    exoPlayer: ExoPlayer,
-    context: Context
+    exoPlayer: ExoPlayer
 ) {
-    // Filter for videos less than 1 minute in duration
-    val shorts = videos.filter { it.duration < 60_000 }
+    val context = LocalContext.current
+    var shorts by remember { mutableStateOf<List<MediaFile>>(emptyList()) }
     var currentIndex by remember { mutableStateOf(0) }
 
-    // Load the current video based on currentIndex
-    val currentVideo = shorts.getOrNull(currentIndex)
+    // Load the short videos asynchronously
+    LaunchedEffect(Unit) {
+        shorts = fetchShortVideos(context)
+    }
 
-    // Define the function to load the next video
+    // Define functions to load next and previous videos
     val loadNextVideo: () -> Unit = {
         if (currentIndex < shorts.size - 1) {
             currentIndex++
         } else {
-            // Optionally, loop back to the first video
-            currentIndex = 0
+            currentIndex = 0 // Loop back to the first video
         }
     }
 
-    // Define the function to load the previous video
     val loadPreviousVideo: () -> Unit = {
         if (currentIndex > 0) {
             currentIndex--
         } else {
-            // Optionally, jump to the last video
-            currentIndex = shorts.size - 1
+            currentIndex = shorts.size - 1 // Jump to the last video
         }
     }
 
-    // Integrate shake detection logic
-    // Note: ShakeDetector is not defined, so this part is commented out
-    // Uncomment and implement ShakeDetector if it's available
-
+    // Shake detection to load the next video
     ShakeDetector(
         context = context,
         onShakeDetected = {
@@ -71,8 +62,10 @@ fun ShortsScreen(
         }
     )
 
+    // Get the current video
+    val currentVideo = shorts.getOrNull(currentIndex)
 
-    // Only display if there is a current video
+    // Display the current video
     currentVideo?.let { video ->
         FullScreenVideoPlayer(
             videoUri = video.uri,
@@ -82,6 +75,63 @@ fun ShortsScreen(
             exoPlayer = exoPlayer
         )
     }
+}
+
+@Composable
+fun FullScreenVideoPlayer(
+    videoUri: Uri,
+    onVideoEnded: () -> Unit,
+    onSwipeUp: () -> Unit,
+    onSwipeDown: () -> Unit,
+    exoPlayer: ExoPlayer
+) {
+    val context = LocalContext.current
+
+    // Manage ExoPlayer lifecycle and playback
+    DisposableEffect(videoUri) {
+        exoPlayer.setMediaItem(MediaItem.fromUri(videoUri))
+        exoPlayer.prepare()
+        exoPlayer.playWhenReady = true
+        exoPlayer.repeatMode = Player.REPEAT_MODE_OFF
+
+        val listener = object : Player.Listener {
+            override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_ENDED) {
+                    onVideoEnded()
+                }
+            }
+        }
+        exoPlayer.addListener(listener)
+
+        onDispose {
+            exoPlayer.removeListener(listener)
+            exoPlayer.stop()
+        }
+    }
+
+    // Implement AndroidView for ExoPlayer integration in Compose
+    AndroidView(
+        factory = {
+            PlayerView(context).apply {
+                player = exoPlayer
+                useController = false // Hide default video controls
+            }
+        },
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                detectVerticalDragGestures(
+                    onVerticalDrag = { _, dragAmount ->
+                        val swipeThreshold = 100f
+                        if (dragAmount > swipeThreshold) {
+                            onSwipeDown()
+                        } else if (dragAmount < -swipeThreshold) {
+                            onSwipeUp()
+                        }
+                    }
+                )
+            }
+    )
 }
 
 @Composable
@@ -132,80 +182,26 @@ fun ShakeDetector(
     }
 }
 
-
-@Composable
-fun FullScreenVideoPlayer(
-    videoUri: Uri,
-    onVideoEnded: () -> Unit,
-    onSwipeUp: () -> Unit,
-    onSwipeDown: () -> Unit,
-    exoPlayer: ExoPlayer
-) {
-    val context = LocalContext.current
-    val swipeThreshold = 100f // Define threshold for swipe detection
-
-    // Manage ExoPlayer lifecycle and playback
-    DisposableEffect(videoUri) {
-        exoPlayer.setMediaItem(MediaItem.fromUri(videoUri))
-        exoPlayer.prepare()
-        exoPlayer.playWhenReady = true
-        exoPlayer.repeatMode = Player.REPEAT_MODE_OFF
-
-        exoPlayer.addListener(object : Player.Listener {
-            override fun onPlaybackStateChanged(state: Int) {
-                if (state == Player.STATE_ENDED) {
-                    onVideoEnded()
-                }
-            }
-        })
-
-        onDispose {
-            exoPlayer.stop()
-        }
-    }
-
-    // Implement AndroidView for ExoPlayer integration in Compose
-    AndroidView(
-        factory = {
-            PlayerView(context).apply {
-                player = exoPlayer
-                useController = false // Hide default video controls
-            }
-        },
-        modifier = Modifier
-            .fillMaxSize()
-            .pointerInput(Unit) {
-                detectVerticalDragGestures(
-                    onVerticalDrag = { change, dragAmount ->
-                        val dragDistance = dragAmount
-                        if (dragDistance > swipeThreshold) {
-                            onSwipeDown()
-                        } else if (dragDistance < -swipeThreshold) {
-                            onSwipeUp()
-                        }
-                    }
-                )
-            }
-    )
-}
-
-
-fun fetchShortVideos(context: Context): List<MediaFile> {
+suspend fun fetchShortVideos(context: Context): List<MediaFile> = withContext(Dispatchers.IO) {
     val mediaFiles = mutableListOf<MediaFile>()
+    val contentResolver = context.contentResolver
     val projection = arrayOf(
         MediaStore.Video.Media._ID,
         MediaStore.Video.Media.DISPLAY_NAME,
-        MediaStore.Video.Media.DURATION,
         MediaStore.Video.Media.SIZE,
+        MediaStore.Video.Media.DURATION,
         MediaStore.Video.Media.DATE_MODIFIED
     )
 
-    context.contentResolver.query(
+    val selection = "${MediaStore.Video.Media.DURATION} <= ?"
+    val selectionArgs = arrayOf("60000") // 60,000 ms (1 minute) duration filter
+
+    contentResolver.query(
         MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
         projection,
-        "${MediaStore.Video.Media.DURATION} <= ?",
-        arrayOf("60000"), // 60000 ms (1 minute) duration filter
-        MediaStore.Video.Media.DATE_MODIFIED + " DESC"
+        selection,
+        selectionArgs,
+        "${MediaStore.Video.Media.DATE_MODIFIED} DESC"
     )?.use { cursor ->
         val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media._ID)
         val displayNameColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DISPLAY_NAME)
@@ -220,11 +216,22 @@ fun fetchShortVideos(context: Context): List<MediaFile> {
             val duration = cursor.getLong(durationColumn)
             val size = cursor.getLong(sizeColumn)
             val dateModified = cursor.getLong(dateModifiedColumn) * 1000
-            val thumbnail = null // Add a null thumbnail for now
 
-            mediaFiles.add(MediaFile(id, uri, displayName, duration, size, dateModified, thumbnail))
+            // No need to load thumbnails for shorts
+
+            mediaFiles.add(
+                MediaFile(
+                    id = id,
+                    uri = uri,
+                    displayName = displayName,
+                    duration = duration,
+                    size = size,
+                    dateModified = dateModified
+                    // thumbnail is optional and defaults to null
+                )
+            )
         }
     }
 
-    return mediaFiles
+    mediaFiles
 }

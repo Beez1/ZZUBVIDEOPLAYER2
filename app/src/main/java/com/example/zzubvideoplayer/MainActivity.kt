@@ -1,11 +1,9 @@
 package com.example.zzubvideoplayer
 
 import android.content.Context
-import android.graphics.Bitmap
 import android.os.Bundle
 import android.provider.MediaStore
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalAnimationApi
@@ -16,7 +14,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -30,7 +27,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -61,16 +57,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.PlayerView
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -79,9 +71,6 @@ import com.example.zzubvideoplayer.screens.LibraryScreen
 import com.example.zzubvideoplayer.ui.theme.ZZUBVIDEOPLAYERTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 private val DarkGrayBackground = Color(0xFF121212)
 private val SoftBlueAccent = Color(0xFF4A90E2)
@@ -95,7 +84,7 @@ data class MediaFile(
     val duration: Long,
     val size: Long,
     val dateModified: Long,
-    val thumbnail: Bitmap? // Added thumbnail property
+    val thumbnail: android.graphics.Bitmap? = null // Optional thumbnail
 )
 
 class MainActivity : ComponentActivity() {
@@ -131,7 +120,7 @@ fun MainApp(exoPlayer: ExoPlayer) {
 
     // Load videos asynchronously
     LaunchedEffect(Unit) {
-        videos = fetchRecentlyAccessedMediaFiles(context)
+        videos = getAllVideoFiles(context)
     }
 
     Scaffold(
@@ -248,8 +237,14 @@ fun NavigationGraph(
                 HomeScreen(videos = videos, exoPlayer = exoPlayer)
             }
         }
-        composable("shorts") { /* Implement your ShortsScreen here */ }
-        composable("library") { AnimatedScreen { LibraryScreen() } }
+        composable("shorts") {
+            AnimatedScreen {
+                ShortsScreen(exoPlayer = exoPlayer)
+            }
+        }
+        composable("library") {
+            AnimatedScreen { LibraryScreen() }
+        }
     }
 }
 
@@ -270,7 +265,7 @@ fun HomeScreen(videos: List<MediaFile>, exoPlayer: ExoPlayer) {
     var selectedVideoUri by remember { mutableStateOf<android.net.Uri?>(null) }
 
     // BackHandler to exit full-screen mode when back is pressed
-    BackHandler(enabled = selectedVideoUri != null) {
+    androidx.activity.compose.BackHandler(enabled = selectedVideoUri != null) {
         selectedVideoUri = null
     }
 
@@ -298,7 +293,9 @@ fun HomeScreen(videos: List<MediaFile>, exoPlayer: ExoPlayer) {
                 )
 
                 if (videos.isNotEmpty()) {
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    androidx.compose.foundation.lazy.LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         items(videos) { mediaFile ->
                             AnimatedCard(
                                 mediaFile = mediaFile,
@@ -333,7 +330,7 @@ fun FullScreenVideoPlayer(
 
     // Manage ExoPlayer lifecycle and playback
     DisposableEffect(videoUri) {
-        exoPlayer.setMediaItem(MediaItem.fromUri(videoUri))
+        exoPlayer.setMediaItem(androidx.media3.common.MediaItem.fromUri(videoUri))
         exoPlayer.prepare()
         exoPlayer.playWhenReady = true
         exoPlayer.repeatMode = Player.REPEAT_MODE_OFF
@@ -354,9 +351,9 @@ fun FullScreenVideoPlayer(
     }
 
     // Implement AndroidView for ExoPlayer integration in Compose
-    AndroidView(
+    androidx.compose.ui.viewinterop.AndroidView(
         factory = {
-            PlayerView(context).apply {
+            androidx.media3.ui.PlayerView(context).apply {
                 player = exoPlayer
                 useController = false // Hide default video controls
             }
@@ -403,8 +400,10 @@ fun AnimatedCard(mediaFile: MediaFile, onClick: () -> Unit) {
                     fontWeight = FontWeight.SemiBold,
                     color = White
                 )
-                val formattedDate = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
-                    .format(Date(mediaFile.dateModified))
+                val formattedDate = java.text.SimpleDateFormat(
+                    "yyyy-MM-dd HH:mm",
+                    java.util.Locale.getDefault()
+                ).format(java.util.Date(mediaFile.dateModified))
                 Text(
                     text = "Recently Added: $formattedDate",
                     fontSize = 14.sp,
@@ -439,11 +438,11 @@ fun VideoThumbnail(mediaFile: MediaFile) {
         contentAlignment = Alignment.Center
     ) {
         if (mediaFile.thumbnail != null) {
-            Image(
+            androidx.compose.foundation.Image(
                 bitmap = mediaFile.thumbnail.asImageBitmap(),
                 contentDescription = "Video Thumbnail",
                 modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop
             )
         } else {
             Icon(
@@ -456,7 +455,7 @@ fun VideoThumbnail(mediaFile: MediaFile) {
     }
 }
 
-suspend fun fetchRecentlyAccessedMediaFiles(context: Context): List<MediaFile> = withContext(Dispatchers.IO) {
+suspend fun getAllVideoFiles(context: Context): List<MediaFile> = withContext(Dispatchers.IO) {
     val mediaFiles = mutableListOf<MediaFile>()
     val projection = arrayOf(
         MediaStore.Video.Media._ID,
@@ -489,7 +488,7 @@ suspend fun fetchRecentlyAccessedMediaFiles(context: Context): List<MediaFile> =
             val dateModified = cursor.getLong(dateModifiedColumn) * 1000
 
             // Load thumbnail
-            val thumbnail: Bitmap? = try {
+            val thumbnail: android.graphics.Bitmap? = try {
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
                     val thumbnailSize = android.util.Size(200, 200)
                     context.contentResolver.loadThumbnail(uri, thumbnailSize, null)
