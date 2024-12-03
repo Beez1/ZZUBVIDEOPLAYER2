@@ -51,7 +51,7 @@ android {
 
 
 dependencies {
-    implementation("androidx.compose.foundation:foundation-layout:1.7.5")
+    implementation(libs.androidx.foundation.layout)
     implementation(libs.androidx.core.ktx)
     implementation(libs.coil.compose)
     implementation(libs.androidx.media3.exoplayer)
@@ -66,7 +66,10 @@ dependencies {
     implementation(libs.androidx.material3)
     implementation(libs.androidx.datastore.core.android)
     implementation(libs.support.annotations)
+    implementation(libs.converter.gson)
+    implementation(libs.retrofit2.retrofit)
     testImplementation(libs.junit)
+    implementation(libs.logging.interceptor)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

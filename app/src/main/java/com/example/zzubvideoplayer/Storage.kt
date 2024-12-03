@@ -1,28 +1,16 @@
-package com.example.zzubvideoplayer
 
-import android.os.Bundle
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Button
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -31,165 +19,204 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
-import androidx.navigation.compose.rememberNavController
-import com.example.zzubvideoplayer.ui.theme.ZZUBVIDEOPLAYERTheme
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
+import okhttp3.OkHttpClient
+import okhttp3.RequestBody.Companion.asRequestBody
+import retrofit2.Retrofit
+import retrofit2.converter.gson.GsonConverterFactory
+import retrofit2.http.Body
+import retrofit2.http.GET
+import retrofit2.http.Header
+import retrofit2.http.Multipart
+import retrofit2.http.POST
+import retrofit2.http.Part
+import java.io.File
 
-class StorageActivity : ComponentActivity() {
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        setContent {
-            ZZUBVIDEOPLAYERTheme {
-                val navController = rememberNavController()
-                StorageScreen(navController)
-            }
-        }
-    }
+data class User(val username: String, val password: String)
+data class AuthResponse(val message: String, val token: String? = null)
+data class Video(val title: String, val url: String)
+
+interface VideoPlatformApi {
+    @POST("auth/register")
+    suspend fun registerUser(@Body user: User): AuthResponse
+
+    @POST("auth/login")
+    suspend fun loginUser(@Body user: User): AuthResponse
+
+    @Multipart
+    @POST("video/upload")
+    suspend fun uploadVideo(
+        @Header("Authorization") token: String,
+        @Part video: MultipartBody.Part,
+        @Part("title") title: MultipartBody.Part
+    ): AuthResponse
+
+    @GET("video")
+    suspend fun fetchVideos(@Header("Authorization") token: String): List<Video>
+}
+
+val api: VideoPlatformApi by lazy {
+    Retrofit.Builder()
+        .baseUrl("https://video-platform-8lwk.onrender.com/")
+        .addConverterFactory(GsonConverterFactory.create())
+        .client(OkHttpClient.Builder().build())
+        .build()
+        .create(VideoPlatformApi::class.java)
 }
 
 @Composable
 fun StorageScreen(navController: NavController) {
-    var showDialog by remember { mutableStateOf(true) } // State to manage dialog visibility
-    var isSignedIn by remember { mutableStateOf(false) } // State to check if the user is signed in
+    var username by remember { mutableStateOf(TextFieldValue("")) }
+    var password by remember { mutableStateOf(TextFieldValue("")) }
+    var token by remember { mutableStateOf("") }
+    var title by remember { mutableStateOf(TextFieldValue("")) }
+    var videoUri by remember { mutableStateOf<Uri?>(null) }
+    var videos by remember { mutableStateOf<List<Video>>(emptyList()) }
+    var message by remember { mutableStateOf<String?>(null) }
 
-    Box(
+    val filePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) {
+        videoUri = it
+    }
+
+    Column(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        if (!isSignedIn && showDialog) {
-            // Display dialog if the user is not signed in
-            LoginDialog(
-                onDismiss = {
-                    showDialog = false
-                    navController.navigate("home") // Navigate back to the home page
-                },
-                onSignIn = {
-                    isSignedIn = true
-                    showDialog = false // Close dialog on successful sign-in
+        // Registration Section
+        Text("Register", color = Color.White, fontSize = 20.sp)
+        BasicTextField(
+            value = username,
+            onValueChange = { username = it },
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color.Gray.copy(alpha = 0.2f))
+                .padding(8.dp),
+            decorationBox = { innerTextField ->
+                if (username.text.isEmpty()) Text("Username", color = Color.Gray) else innerTextField()
+            }
+        )
+        BasicTextField(
+            value = password,
+            onValueChange = { password = it },
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color.Gray.copy(alpha = 0.2f))
+                .padding(8.dp),
+            decorationBox = { innerTextField ->
+                if (password.text.isEmpty()) Text("Password", color = Color.Gray) else innerTextField()
+            }
+        )
+        Button(onClick = {
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val response = api.registerUser(User(username.text, password.text))
+                    message = response.message
+                } catch (e: Exception) {
+                    message = "Error: ${e.message}"
                 }
-            )
+            }
+        }) {
+            Text("Register")
         }
 
-        // Main content for signed-in users
-        if (isSignedIn) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(16.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Your Videos",
-                        color = Color.White,
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = "Add Video",
-                        tint = Color.White,
-                        modifier = Modifier
-                            .size(28.dp)
-                            .clickable {
-                                // Logic to add a video (placeholder for now)
-                            }
-                    )
+        // Login Section
+        Text("Login", color = Color.White, fontSize = 20.sp)
+        Button(onClick = {
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val response = api.loginUser(User(username.text, password.text))
+                    token = response.token ?: ""
+                    message = response.message
+                } catch (e: Exception) {
+                    message = "Error: ${e.message}"
                 }
-                Spacer(modifier = Modifier.height(16.dp))
+            }
+        }) {
+            Text("Login")
+        }
 
-                // Placeholder for video list
+        // Upload Section
+        Text("Upload Video", color = Color.White, fontSize = 20.sp)
+        BasicTextField(
+            value = title,
+            onValueChange = { title = it },
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color.Gray.copy(alpha = 0.2f))
+                .padding(8.dp),
+            decorationBox = { innerTextField ->
+                if (title.text.isEmpty()) Text("Video Title", color = Color.Gray) else innerTextField()
+            }
+        )
+        Button(onClick = { filePickerLauncher.launch("video/*") }) {
+            Text("Pick Video")
+        }
+        Button(onClick = {
+            if (videoUri != null && token.isNotEmpty()) {
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        val file = File(videoUri!!.path!!)
+                        val videoPart = MultipartBody.Part.createFormData(
+                            "video", file.name, file.asRequestBody("video/*".toMediaTypeOrNull())
+                        )
+                        val titlePart = MultipartBody.Part.createFormData(
+                            "title", title.text
+                        )
+                        val response = api.uploadVideo("Bearer $token", videoPart, titlePart)
+                        message = response.message
+                    } catch (e: Exception) {
+                        message = "Error: ${e.message}"
+                    }
+                }
+            } else {
+                message = "Please log in and pick a video"
+            }
+        }) {
+            Text("Upload")
+        }
+
+        // Fetch Videos Section
+        Text("Your Videos", color = Color.White, fontSize = 20.sp)
+        Button(onClick = {
+            if (token.isNotEmpty()) {
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        videos = api.fetchVideos("Bearer $token")
+                    } catch (e: Exception) {
+                        message = "Error: ${e.message}"
+                    }
+                }
+            } else {
+                message = "Please log in"
+            }
+        }) {
+            Text("Fetch Videos")
+        }
+        Column {
+            videos.forEach { video ->
                 Text(
-                    text = "No videos uploaded yet.",
-                    color = Color.Gray,
+                    text = "${video.title}: ${video.url}",
+                    color = Color.White,
                     fontSize = 16.sp
                 )
             }
         }
-    }
-}
 
-@Composable
-fun LoginDialog(onDismiss: () -> Unit, onSignIn: () -> Unit) {
-    var email by remember { mutableStateOf(TextFieldValue("")) }
-    var password by remember { mutableStateOf(TextFieldValue("")) }
-
-    AlertDialog(
-        onDismissRequest = { onDismiss() },
-        title = {
-            Text(
-                text = "Sign In Required",
-                style = MaterialTheme.typography.titleMedium
-            )
-        },
-        text = {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                BasicTextField(
-                    value = email,
-                    onValueChange = { email = it },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color.Gray.copy(alpha = 0.2f))
-                        .padding(8.dp),
-                    decorationBox = { innerTextField ->
-                        if (email.text.isEmpty()) {
-                            Text(
-                                text = "Enter email",
-                                color = Color.Gray,
-                                textAlign = TextAlign.Start
-                            )
-                        }
-                        innerTextField()
-                    }
-                )
-                BasicTextField(
-                    value = password,
-                    onValueChange = { password = it },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color.Gray.copy(alpha = 0.2f))
-                        .padding(8.dp),
-                    decorationBox = { innerTextField ->
-                        if (password.text.isEmpty()) {
-                            Text(
-                                text = "Enter password",
-                                color = Color.Gray,
-                                textAlign = TextAlign.Start
-                            )
-                        }
-                        innerTextField()
-                    }
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    onSignIn() // Handle successful sign-in
-                }
-            ) {
-                Text(text = "Sign In")
-            }
-        },
-        dismissButton = {
-            TextButton(
-                onClick = { onDismiss() } // Handle cancel action
-            ) {
-                Text(text = "Cancel")
-            }
+        // Message Display
+        message?.let {
+            Text(it, color = if (it.contains("success", true)) Color.Green else Color.Red)
         }
-    )
+    }
 }
