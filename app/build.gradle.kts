@@ -49,7 +49,6 @@ android {
     }
 }
 
-
 dependencies {
     implementation(libs.androidx.foundation.layout)
     implementation(libs.androidx.core.ktx)
@@ -66,10 +65,20 @@ dependencies {
     implementation(libs.androidx.material3)
     implementation(libs.androidx.datastore.core.android)
     implementation(libs.support.annotations)
+    implementation(libs.ui)
+    implementation(libs.material3)
+    implementation(libs.androidx.navigation.compose.v253)
+    implementation(libs.retrofit2.retrofit)
+    implementation(libs.converter.gson)
+    implementation(libs.okhttp)
+    implementation(libs.logging.interceptor.v493)
+    implementation(libs.androidx.activity.compose.v172)
+    implementation(libs.androidx.lifecycle.runtime.ktx.v261)
     implementation(libs.converter.gson)
     implementation(libs.retrofit2.retrofit)
     implementation(libs.androidx.animation.core.lint)
     implementation(libs.androidx.espresso.core)
+    implementation(libs.androidx.compiler)
     testImplementation(libs.junit)
     implementation(libs.logging.interceptor)
     androidTestImplementation(libs.androidx.junit)
