@@ -68,6 +68,8 @@ dependencies {
     implementation(libs.support.annotations)
     implementation(libs.converter.gson)
     implementation(libs.retrofit2.retrofit)
+    implementation(libs.androidx.animation.core.lint)
+    implementation(libs.androidx.espresso.core)
     testImplementation(libs.junit)
     implementation(libs.logging.interceptor)
     androidTestImplementation(libs.androidx.junit)
