@@ -2,10 +2,13 @@ package com.example.zzubvideoplayer
 
 import StorageScreen
 import android.content.Context
+import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.animateColorAsState
@@ -24,6 +27,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -44,6 +48,7 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -117,23 +122,63 @@ fun MainApp(exoPlayer: ExoPlayer) {
     val context = LocalContext.current
     val navController = rememberNavController()
 
-    var videos by remember { mutableStateOf<List<MediaFile>>(emptyList()) }
+    var hasPermission by remember { mutableStateOf(false) }
+    var showPermissionDialog by remember { mutableStateOf(false) }
 
-    // Load videos asynchronously
-    LaunchedEffect(Unit) {
-        videos = getAllVideoFiles(context)
+    // Permission launcher
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        hasPermission = isGranted
+        if (!isGranted) {
+            showPermissionDialog = true
+        }
     }
 
-    Scaffold(
-        bottomBar = { BottomNavigationBar(navController) },
-        containerColor = DarkGrayBackground
-    ) { innerPadding ->
-        NavigationGraph(
-            navController = navController,
-            modifier = Modifier.padding(innerPadding),
-            videos = videos,
-            exoPlayer = exoPlayer
-        )
+    LaunchedEffect(Unit) {
+        // Request permission on first launch
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            // Modern permission
+            permissionLauncher.launch(android.Manifest.permission.READ_MEDIA_VIDEO)
+        } else {
+            permissionLauncher.launch(android.Manifest.permission.READ_EXTERNAL_STORAGE)
+        }
+    }
+
+    if (hasPermission) {
+        var videos by remember { mutableStateOf<List<MediaFile>>(emptyList()) }
+
+        // Load videos asynchronously
+        LaunchedEffect(Unit) {
+            videos = getAllVideoFiles(context)
+        }
+
+        Scaffold(
+            bottomBar = { BottomNavigationBar(navController) },
+            containerColor = DarkGrayBackground
+        ) { innerPadding ->
+            NavigationGraph(
+                navController = navController,
+                modifier = Modifier.padding(innerPadding),
+                videos = videos,
+                exoPlayer = exoPlayer
+            )
+        }
+    } else {
+        if (showPermissionDialog) {
+            PermissionRationaleDialog(
+                onRequestPermission = {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        permissionLauncher.launch(android.Manifest.permission.READ_MEDIA_VIDEO)
+                    } else {
+                        permissionLauncher.launch(android.Manifest.permission.READ_EXTERNAL_STORAGE)
+                    }
+                },
+                onDismiss = {
+                    showPermissionDialog = false
+                }
+            )
+        }
     }
 }
 
@@ -220,6 +265,50 @@ fun BottomNavigationBar(navController: NavHostController) {
 
 data class NavigationItem(val route: String, val icon: ImageVector, val label: String)
 
+@Composable
+fun PermissionRationaleDialog(
+    onRequestPermission: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(DarkGrayBackground, shape = RoundedCornerShape(16.dp))
+                .padding(24.dp)
+        ) {
+            Column(
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "Permission Required",
+                    color = White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "This app requires access to your media files to display your videos. Please grant the permission.",
+                    color = LightGray,
+                    fontSize = 14.sp
+                )
+                Spacer(modifier = Modifier.height(24.dp))
+                Row(
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("Cancel", color = SoftBlueAccent)
+                    }
+                    TextButton(onClick = onRequestPermission) {
+                        Text("Grant Permission", color = SoftBlueAccent)
+                    }
+                }
+            }
+        }
+    }
+}
 
 @OptIn(ExperimentalAnimationApi::class)
 @Composable
