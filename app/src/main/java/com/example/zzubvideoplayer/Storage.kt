@@ -32,6 +32,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -46,9 +47,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
@@ -70,13 +73,19 @@ import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+import okhttp3.MediaType
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import okio.BufferedSink
+import okio.ForwardingSink
+import okio.Sink
+import okio.buffer
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.Body
@@ -589,7 +598,7 @@ fun VideoItem(video: Video) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(200.dp)
+                    .height(220.dp)
                     .background(Color.Black)
             ) {
                 if (!isPlaying) {
@@ -813,6 +822,38 @@ fun UpdateUsernameDialog(
         }
     }
 }
+// ProgressRequestBody Class
+class ProgressRequestBody(
+    private val requestBody: RequestBody,
+    private val progressFlow: MutableStateFlow<Int>
+) : RequestBody() {
+
+    override fun contentType(): MediaType? = requestBody.contentType()
+
+    override fun contentLength(): Long = requestBody.contentLength()
+
+    override fun writeTo(sink: BufferedSink) {
+        val countingSink = CountingSink(sink)
+        val bufferedSink = countingSink.buffer()
+        requestBody.writeTo(bufferedSink)
+        bufferedSink.flush()
+    }
+
+    inner class CountingSink(delegate: Sink) : ForwardingSink(delegate) {
+        var bytesWritten = 0L
+        var contentLength = 0L
+
+        override fun write(source: okio.Buffer, byteCount: Long) {
+            super.write(source, byteCount)
+            if (contentLength == 0L) {
+                contentLength = contentLength()
+            }
+            bytesWritten += byteCount
+            val progress = ((bytesWritten * 100) / contentLength).toInt()
+            progressFlow.value = progress
+        }
+    }
+}
 @Composable
 fun UpdatePasswordDialog(
     api: VideoPlatformApi,
@@ -915,10 +956,16 @@ fun UpdatePasswordDialog(
     }
 }
 
+
+// UploadVideoDialog Composable
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun UploadVideoDialog(api: VideoPlatformApi, token: String, onDismiss: () -> Unit) {
-    // Universal color scheme
+fun UploadVideoDialog(
+    api: VideoPlatformApi,
+    token: String,
+    onDismiss: () -> Unit
+) {
+    // Color Scheme
     val backgroundColor = Color(0xFF121212)
     val primaryColor = Color(0xFF4A90E2)
     val textColor = Color.White
@@ -926,7 +973,14 @@ fun UploadVideoDialog(api: VideoPlatformApi, token: String, onDismiss: () -> Uni
 
     var videoTitle by remember { mutableStateOf("") }
     var videoUri by remember { mutableStateOf<Uri?>(null) }
+    var selectedFileName by remember { mutableStateOf("") }
     var message by remember { mutableStateOf<String?>(null) }
+
+    // State variables for upload progress
+    var uploadProgress by remember { mutableStateOf(0) }
+    var isUploading by remember { mutableStateOf(false) }
+
+
     val context = LocalContext.current
 
     // Video Picker Launcher
@@ -934,9 +988,31 @@ fun UploadVideoDialog(api: VideoPlatformApi, token: String, onDismiss: () -> Uni
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         videoUri = uri
+        if (uri != null) {
+            selectedFileName = uri.lastPathSegment ?: "" // Use lastPathSegment instead of getFileName
+        } else {
+            selectedFileName = ""
+        }
     }
 
-    Dialog(onDismissRequest = { onDismiss() }) {
+    // StateFlow to track progress
+    val progressFlow = remember { MutableStateFlow(0) }
+
+    // Collect progress updates
+    LaunchedEffect(progressFlow) {
+        progressFlow.collect { progress ->
+            uploadProgress = progress
+        }
+    }
+
+    // Coroutine scope tied to composable
+    val coroutineScope = rememberCoroutineScope()
+
+    Dialog(onDismissRequest = {
+        if (!isUploading) {
+            onDismiss()
+        }
+    }) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -944,10 +1020,29 @@ fun UploadVideoDialog(api: VideoPlatformApi, token: String, onDismiss: () -> Uni
                 .padding(24.dp)
         ) {
             Column(
-                verticalArrangement = Arrangement.Center,
+                verticalArrangement = Arrangement.Top,
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.fillMaxWidth()
             ) {
+                // Progress Bar (Visible during upload)
+                if (isUploading) {
+                    LinearProgressIndicator(
+                        progress = uploadProgress / 100f,
+                        color = primaryColor,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Uploading: $uploadProgress%",
+                        color = primaryColor,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+
                 Text(
                     text = "Upload Video",
                     color = textColor,
@@ -971,6 +1066,7 @@ fun UploadVideoDialog(api: VideoPlatformApi, token: String, onDismiss: () -> Uni
                         keyboardType = KeyboardType.Text,
                         imeAction = ImeAction.Next
                     ),
+                    enabled = !isUploading,
                     colors = OutlinedTextFieldDefaults.colors(
                         cursorColor = primaryColor,
                         focusedBorderColor = primaryColor,
@@ -993,9 +1089,22 @@ fun UploadVideoDialog(api: VideoPlatformApi, token: String, onDismiss: () -> Uni
                     colors = ButtonDefaults.buttonColors(
                         containerColor = primaryColor,
                         contentColor = textColor
-                    )
+                    ),
+                    enabled = !isUploading
                 ) {
                     Text("Select Video")
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Display selected file name
+                if (selectedFileName.isNotEmpty()) {
+                    Text(
+                        text = "Selected File: $selectedFileName",
+                        color = Color.Gray,
+                        fontSize = 14.sp,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -1006,22 +1115,36 @@ fun UploadVideoDialog(api: VideoPlatformApi, token: String, onDismiss: () -> Uni
                         if (videoTitle.isBlank() || videoUri == null) {
                             message = "Please provide a title and select a video"
                         } else {
+                            isUploading = true
+                            uploadProgress = 0
+                            message = null
                             // Handle video upload
-                            CoroutineScope(Dispatchers.IO).launch {
+                            coroutineScope.launch {
                                 try {
                                     val file = FileUtils.getFileFromUri(context, videoUri!!)
                                     val requestFile = file.asRequestBody("video/*".toMediaTypeOrNull())
-                                    val body = MultipartBody.Part.createFormData("video", file.name, requestFile)
+
+                                    // Wrap the request body with ProgressRequestBody
+                                    val progressRequestBody = ProgressRequestBody(requestFile, progressFlow)
+                                    val videoPart = MultipartBody.Part.createFormData("video", file.name, progressRequestBody)
                                     val titleRequestBody = videoTitle.toRequestBody("text/plain".toMediaTypeOrNull())
+
+
+                                    // Perform the upload
                                     val response = api.uploadVideo(
                                         "Bearer $token",
-                                        video = body,
+                                        video = videoPart,
                                         title = titleRequestBody
                                     )
+
+                                    // Update UI on success
                                     message = response.message
+                                    isUploading = false
                                     onDismiss()
                                 } catch (e: Exception) {
+                                    // Handle error and update UI
                                     message = "Error: ${e.message}"
+                                    isUploading = false
                                 }
                             }
                         }
@@ -1030,7 +1153,8 @@ fun UploadVideoDialog(api: VideoPlatformApi, token: String, onDismiss: () -> Uni
                     colors = ButtonDefaults.buttonColors(
                         containerColor = primaryColor,
                         contentColor = textColor
-                    )
+                    ),
+                    enabled = !isUploading
                 ) {
                     Text("Upload")
                 }
@@ -1048,7 +1172,14 @@ fun UploadVideoDialog(api: VideoPlatformApi, token: String, onDismiss: () -> Uni
                 }
 
                 // Cancel Button
-                TextButton(onClick = { onDismiss() }) {
+                TextButton(
+                    onClick = {
+                        if (!isUploading) {
+                            onDismiss()
+                        }
+                    },
+                    enabled = !isUploading
+                ) {
                     Text("Cancel", color = errorColor)
                 }
             }
