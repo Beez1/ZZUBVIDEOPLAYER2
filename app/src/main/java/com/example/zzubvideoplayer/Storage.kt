@@ -14,8 +14,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -64,7 +64,6 @@ import androidx.compose.ui.window.Dialog
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.navigation.NavController
-import coil.compose.AsyncImage
 import com.example.zzubvideoplayer.MainActivity
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
@@ -146,17 +145,32 @@ fun StorageScreen(navController: NavController) {
 
     val context = LocalContext.current
 
+    // Check stored credentials on launch
+    LaunchedEffect(Unit) {
+        val (storedToken, storedUsername) = getUserCredentials(context)
+        if (!storedToken.isNullOrBlank() && !storedUsername.isNullOrBlank()) {
+            // If we already have a token and username, skip login dialog
+            token = storedToken
+            username = storedUsername
+            showDialog = false
+        } else {
+            showDialog = true
+        }
+    }
+
     if (showDialog) {
         AuthDialog(
             api = api,
             onDismiss = {
-                // Navigate back to MainActivity on Cancel
+                // If dismissed, navigate back to main or handle appropriately
                 context.startActivity(Intent(context, MainActivity::class.java))
             },
             onTokenReceived = { userToken, userName ->
                 token = userToken
                 username = userName
                 showDialog = false
+                // Save credentials locally
+                saveUserCredentials(context, userToken, userName)
             }
         )
     }
@@ -169,6 +183,9 @@ fun StorageScreen(navController: NavController) {
             initialUsername = username,
             onLogout = {
                 token = ""
+                username = ""
+                // Clear stored credentials
+                clearUserCredentials(context)
                 showDialog = true
             }
         )
@@ -354,6 +371,30 @@ fun AuthDialog(
         }
     }
 }
+fun saveUserCredentials(context: Context, token: String, username: String) {
+    val sharedPref = context.getSharedPreferences("user_prefs", Context.MODE_PRIVATE)
+    with(sharedPref.edit()) {
+        putString("token", token)
+        putString("username", username)
+        apply()
+    }
+}
+
+fun getUserCredentials(context: Context): Pair<String?, String?> {
+    val sharedPref = context.getSharedPreferences("user_prefs", Context.MODE_PRIVATE)
+    val token = sharedPref.getString("token", null)
+    val username = sharedPref.getString("username", null)
+    return Pair(token, username)
+}
+
+fun clearUserCredentials(context: Context) {
+    val sharedPref = context.getSharedPreferences("user_prefs", Context.MODE_PRIVATE)
+    with(sharedPref.edit()) {
+        clear()
+        apply()
+    }
+}
+
 
 // UserHomeScreen
 @OptIn(ExperimentalMaterial3Api::class)
@@ -530,7 +571,7 @@ fun VideoItem(video: Video) {
             exoPlayer.playWhenReady = false
         }
     }
-
+    // Video Card
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -539,54 +580,69 @@ fun VideoItem(video: Video) {
         shape = RoundedCornerShape(8.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
+            // Video Title
             Text(video.title, color = Color.White, fontSize = 18.sp)
+
             Spacer(modifier = Modifier.height(8.dp))
 
-            Box(modifier = Modifier
-                .fillMaxWidth()
-                .height(200.dp)) {
-
-                // Thumbnail and Play Button
+            // Video Player or Thumbnail
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(200.dp)
+                    .background(Color.Black)
+            ) {
                 if (!isPlaying) {
-                    AsyncImage(
-                        model = "${video.url}.jpg", // Assuming thumbnail is at this URL
-                        contentDescription = "Video Thumbnail",
+                    // Thumbnail
+                    Text(
+                        text = "Play Video",
+                        color = Color.White,
                         modifier = Modifier
-                            .fillMaxSize()
+                            .align(Alignment.Center)
                             .clickable {
                                 isPlaying = true
                                 exoPlayer.playWhenReady = true
                             }
+                            .padding(8.dp)
                     )
-                }
-
-                // Video Player
-                if (isPlaying) {
+                } else {
+                    // Fullscreen Video Player
                     AndroidView(
                         factory = {
                             androidx.media3.ui.PlayerView(context).apply {
                                 player = exoPlayer
                                 useController = true
+                                layoutParams = FrameLayout.LayoutParams(
+                                    FrameLayout.LayoutParams.MATCH_PARENT,
+                                    FrameLayout.LayoutParams.MATCH_PARENT
+                                )
                             }
                         },
                         modifier = Modifier.fillMaxSize()
                     )
                 }
-                // Fullscreen Button
-                TextButton(
-                    onClick = { showFullScreen = true },
-                    modifier = Modifier.align(Alignment.TopEnd)
-                ) {
-                    Text(
-                        text = "Fullscreen",
-                        color = Color.White,
-                        fontSize = 14.sp
-                    )
-                }
+            }
 
-// Download Button
-                TextButton(
-                    onClick = {
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Fullscreen and Download Buttons
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = if (isPlaying) "Open Fullscreen" else "Fullscreen",
+                    color = Color(0xFF4A90E2),
+                    modifier = Modifier.clickable {
+                        showFullScreen = true
+                    },
+                    fontSize = 14.sp
+                )
+
+                Text(
+                    text = "Download",
+                    color = Color(0xFF4A90E2),
+                    modifier = Modifier.clickable {
                         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
                             if (storagePermissionState.status.isGranted) {
                                 downloadVideo(context, video.url, video.title)
@@ -597,17 +653,8 @@ fun VideoItem(video: Video) {
                             downloadVideo(context, video.url, video.title)
                         }
                     },
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(8.dp)
-                ) {
-                    Text(
-                        text = "Download",
-                        color = Color.White,
-                        fontSize = 14.sp
-                    )
-                }
-
+                    fontSize = 14.sp
+                )
             }
         }
     }
@@ -651,23 +698,40 @@ fun FullScreenVideoDialog(videoUrl: String, onDismiss: () -> Unit) {
     }
 
     Dialog(onDismissRequest = onDismiss) {
-        AndroidView(
-            factory = {
-                androidx.media3.ui.PlayerView(context).apply {
-                    player = exoPlayer
-                    useController = true
-                    layoutParams = FrameLayout.LayoutParams(
-                        FrameLayout.LayoutParams.MATCH_PARENT,
-                        FrameLayout.LayoutParams.MATCH_PARENT
-                    )
-                }
-            },
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight()
-        )
+                .fillMaxSize()
+                .background(Color.Black)
+        ) {
+            AndroidView(
+                factory = {
+                    androidx.media3.ui.PlayerView(context).apply {
+                        player = exoPlayer
+                        useController = true
+                        layoutParams = FrameLayout.LayoutParams(
+                            FrameLayout.LayoutParams.MATCH_PARENT,
+                            FrameLayout.LayoutParams.MATCH_PARENT
+                        )
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+
+            Text(
+                text = "Close",
+                color = Color(0xFF4A90E2),
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(16.dp)
+                    .clickable {
+                        onDismiss()
+                    },
+                fontSize = 16.sp
+            )
+        }
     }
 }
+
 
 @Composable
 fun UpdateUsernameDialog(
@@ -991,7 +1055,6 @@ fun UploadVideoDialog(api: VideoPlatformApi, token: String, onDismiss: () -> Uni
         }
     }
 }
-
 // Utility object to get File from Uri
 object FileUtils {
     fun getFileFromUri(context: Context, uri: Uri): File {
