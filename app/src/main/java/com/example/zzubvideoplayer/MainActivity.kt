@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -124,6 +125,7 @@ fun MainApp(exoPlayer: ExoPlayer) {
 
     var hasPermission by remember { mutableStateOf(false) }
     var showPermissionDialog by remember { mutableStateOf(false) }
+    var showInfoDialog by remember { mutableStateOf(shouldShowInfoDialog(context)) }
 
     // Permission launcher
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -135,16 +137,16 @@ fun MainApp(exoPlayer: ExoPlayer) {
         }
     }
 
+    // Request permission on first launch
     LaunchedEffect(Unit) {
-        // Request permission on first launch
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            // Modern permission
             permissionLauncher.launch(android.Manifest.permission.READ_MEDIA_VIDEO)
         } else {
             permissionLauncher.launch(android.Manifest.permission.READ_EXTERNAL_STORAGE)
         }
     }
 
+    // Main content if permission is granted
     if (hasPermission) {
         var videos by remember { mutableStateOf<List<MediaFile>>(emptyList()) }
 
@@ -154,7 +156,9 @@ fun MainApp(exoPlayer: ExoPlayer) {
         }
 
         Scaffold(
-            bottomBar = { BottomNavigationBar(navController) },
+            bottomBar = {
+                BottomNavigationBar(navController = navController)
+            },
             containerColor = DarkGrayBackground
         ) { innerPadding ->
             NavigationGraph(
@@ -165,6 +169,7 @@ fun MainApp(exoPlayer: ExoPlayer) {
             )
         }
     } else {
+        // Show permission rationale if permission is denied
         if (showPermissionDialog) {
             PermissionRationaleDialog(
                 onRequestPermission = {
@@ -179,6 +184,17 @@ fun MainApp(exoPlayer: ExoPlayer) {
                 }
             )
         }
+    }
+
+    // Show Info Dialog
+    if (showInfoDialog) {
+        InfoDialog(
+            onDismiss = { showInfoDialog = false },
+            onDontShowAgain = {
+                setDontShowInfoDialog(context, true)
+                showInfoDialog = false
+            }
+        )
     }
 }
 
@@ -339,6 +355,70 @@ fun NavigationGraph(
         composable("storage") {
             AnimatedScreen { StorageScreen(navController = navController) }
         }
+    }
+}
+fun setDontShowInfoDialog(context: Context, value: Boolean) {
+    val sharedPreferences = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+    sharedPreferences.edit().putBoolean("show_info_dialog", !value).apply()
+}
+
+fun shouldShowInfoDialog(context: Context): Boolean {
+    val sharedPreferences = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+    return sharedPreferences.getBoolean("show_info_dialog", true)
+}
+@Composable
+fun InfoDialog(
+    onDismiss: () -> Unit,
+    onDontShowAgain: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "App Navigation Guide",
+                style = MaterialTheme.typography.titleLarge,
+                color = Color.White
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                InfoItem(
+                    title = "Home Screen",
+                    description = "View recently added videos and navigate to the Cloud+."
+                )
+                InfoItem(
+                    title = "Shorts Screen",
+                    description = "Watch short videos seamlessly with shake or swipe navigation."
+                )
+                InfoItem(
+                    title = "Library Screen",
+                    description = "Access your library to manage and view all videos."
+                )
+                InfoItem(
+                    title = "Cloud+",
+                    description = "Upload and manage your videos in the cloud."
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Dismiss", color = SoftBlueAccent)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDontShowAgain) {
+                Text("Don't Show Again", color = SoftBlueAccent)
+            }
+        },
+        containerColor = DarkGrayBackground
+    )
+}
+
+@Composable
+fun InfoItem(title: String, description: String) {
+    Column {
+        Text(text = title, style = MaterialTheme.typography.titleMedium, color = Color.White)
+        Text(text = description, style = MaterialTheme.typography.bodyMedium, color = Color.LightGray)
     }
 }
 

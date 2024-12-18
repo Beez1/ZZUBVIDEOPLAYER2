@@ -183,7 +183,6 @@ fun StorageScreen(navController: NavController) {
             }
         )
     }
-
     // Display UserHomeScreen if logged in
     if (token.isNotEmpty()) {
         UserHomeScreen(
