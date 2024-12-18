@@ -74,14 +74,14 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.zzubvideoplayer.screens.LibraryScreen
+import com.example.zzubvideoplayer.ui.theme.DarkGrayBackground
+import com.example.zzubvideoplayer.ui.theme.LightGray
+import com.example.zzubvideoplayer.ui.theme.SoftBlueAccent
+import com.example.zzubvideoplayer.ui.theme.White
 import com.example.zzubvideoplayer.ui.theme.ZZUBVIDEOPLAYERTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-private val DarkGrayBackground = Color(0xFF121212)
-private val SoftBlueAccent = Color(0xFF4A90E2)
-private val LightGray = Color(0xFFA0A0A0)
-private val White = Color.White
 
 data class MediaFile(
     val id: Long,
@@ -394,16 +394,18 @@ fun HomeScreen(videos: List<MediaFile>, exoPlayer: ExoPlayer, navController: Nav
                     )
 
                     // Navigate to Storage Screen
-                    Icon(
-                        imageVector = Icons.Default.List, // You can replace this with another icon if preferred
-                        contentDescription = "Storage",
-                        tint = White,
+                    Text(
+                        text = "Cloud+", // Replace with desired label
+                        fontSize = 14.sp,       // Adjust font size as needed
+                        fontWeight = FontWeight.Bold,
+                        color = White,
                         modifier = Modifier
-                            .size(28.dp)
                             .clickable {
                                 navController.navigate("storage") // Navigate to Storage screen
                             }
+                            .padding(horizontal = 8.dp, vertical = 4.dp) // Add padding for touch area
                     )
+
                 }
 
                 if (videos.isNotEmpty()) {
